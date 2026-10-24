@@ -1,0 +1,79 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-695383317204b1ef619d.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "annin_ar4_moveit_demos",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_moveit_demos_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_moveit_demos_uninstall-514ac246721706e2ed9a.json",
+					"name" : "annin_ar4_moveit_demos_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "coordinate_pos_loop_demo::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-coordinate_pos_loop_demo-4200909585b860b47f39.json",
+					"name" : "coordinate_pos_loop_demo",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-28cd05cbc2b96dc21fa9.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/hamgist/RobotHand/build/annin_ar4_moveit_demos",
+		"source" : "/home/hamgist/RobotHand/ar4_ros_driver/annin_ar4_moveit_demos"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

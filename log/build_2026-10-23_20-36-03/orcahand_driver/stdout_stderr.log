@@ -1,0 +1,17 @@
+running develop
+running egg_info
+writing orcahand_driver.egg-info/PKG-INFO
+writing dependency_links to orcahand_driver.egg-info/dependency_links.txt
+writing entry points to orcahand_driver.egg-info/entry_points.txt
+writing requirements to orcahand_driver.egg-info/requires.txt
+writing top-level names to orcahand_driver.egg-info/top_level.txt
+reading manifest file 'orcahand_driver.egg-info/SOURCES.txt'
+writing manifest file 'orcahand_driver.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/hamgist/RobotHand/install/orcahand_driver/lib/python3.12/site-packages/orcahand-driver.egg-link (link to .)
+Installing hand_pose script to /home/hamgist/RobotHand/install/orcahand_driver/lib/orcahand_driver
+Installing orcahand_driver script to /home/hamgist/RobotHand/install/orcahand_driver/lib/orcahand_driver
+Installing slider_relay script to /home/hamgist/RobotHand/install/orcahand_driver/lib/orcahand_driver
+
+Installed /home/hamgist/RobotHand/build/orcahand_driver
+running symlink_data

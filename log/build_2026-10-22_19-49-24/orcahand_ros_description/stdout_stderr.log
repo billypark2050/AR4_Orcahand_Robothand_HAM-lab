@@ -1,0 +1,106 @@
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/hamgist/RobotHand/build/orcahand_ros_description
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/urdf/orcahand.urdf.xacro
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/urdf/orcahand.xacro
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/urdf/orcahand_left_macro.xacro
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/urdf/orcahand_right_macro.xacro
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_carpals.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_forearm.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_index_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_index_fingertip_assembly.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_index_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_middle_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_middle_fingertip_assembly.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_middle_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_pinky_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_pinky_fingertip_assembly.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_pinky_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_thumb_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_thumb_dp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_thumb_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_thumb_tp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/collision/link_tower.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_carpals.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_forearm.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_index_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_index_fingertip_assembly.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_index_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_middle_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_middle_fingertip_assembly.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_middle_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_pinky_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_pinky_fingertip_assembly.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_pinky_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_thumb_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_thumb_dp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_thumb_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_thumb_tp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/left/visual/link_tower.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_carpals.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_forearm.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_index_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_index_fingertip_assembly.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_index_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_middle_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_middle_fingertip_assembly.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_middle_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_pinky_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_pinky_fingertip_assembly.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_pinky_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_thumb_ap.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_thumb_dp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_thumb_pp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_thumb_tp.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/collision/link_tower.stl
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_carpals.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_forearm.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_index_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_index_fingertip_assembly.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_index_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_middle_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_middle_fingertip_assembly.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_middle_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_pinky_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_pinky_fingertip_assembly.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_pinky_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_thumb_ap.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_thumb_dp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_thumb_pp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_thumb_tp.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/meshes/right/visual/link_tower.dae
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/config/hand_joints.yaml
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/launch/view_hand.launch.py
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/rviz/view_hand.rviz
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/ament_index/resource_index/package_run_dependencies/orcahand_ros_description
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/ament_index/resource_index/parent_prefix_path/orcahand_ros_description
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/environment/ament_prefix_path.sh
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/environment/ament_prefix_path.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/environment/path.sh
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/environment/path.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/local_setup.bash
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/local_setup.sh
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/local_setup.zsh
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/local_setup.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/package.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/ament_index/resource_index/packages/orcahand_ros_description
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/cmake/orcahand_ros_descriptionConfig.cmake
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/cmake/orcahand_ros_descriptionConfig-version.cmake
+-- Symlinking: /home/hamgist/RobotHand/install/orcahand_ros_description/share/orcahand_ros_description/package.xml

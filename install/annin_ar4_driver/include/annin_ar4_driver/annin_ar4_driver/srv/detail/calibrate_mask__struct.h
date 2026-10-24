@@ -1,0 +1,1 @@
+/home/hamgist/RobotHand/build/annin_ar4_driver/rosidl_generator_c/annin_ar4_driver/srv/detail/calibrate_mask__struct.h

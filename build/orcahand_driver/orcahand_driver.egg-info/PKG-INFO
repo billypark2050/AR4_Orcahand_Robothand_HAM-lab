@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: orcahand-driver
+Version: 0.1.0
+Summary: ROS 2 driver for the ORCA Hand (orca_core wrapper)
+Maintainer: Billy Park
+Maintainer-email: billypark2050@gmail.com
+License: MIT

@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<!--
+  AR4 (mk1..mk5) + mounting parts + ORCA Hand v2 as ONE robot_description.
+
+  Tree:  world -> AR4 (base_link ... link_6 -> ee_link)
+               -> parts from mount_config (default: hand_adapter -> hand_adapter_top)
+               -> ${hand_prefix}forearm -> ... ORCA hand
+
+  * Arm joints  : ${tf_prefix}joint_1..6       (annin_ar4_driver / ros2_control)
+  * Hand joints : ${hand_prefix}<orca_core id> (orcahand_driver, NOT ros2_control)
+  * Mounting    : edit config/mount.yaml (or pass mount_config:=/path/to/your.yaml)
+  The AR4 servo gripper is intentionally not included.
+-->
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ar4_orca">
+  <xacro:arg name="ar_model" default="mk5"/>
+  <xacro:arg name="tf_prefix" default=""/>
+  <xacro:arg name="serial_port" default="/dev/ttyACM0"/>
+  <xacro:arg name="calibrate" default="True"/>
+  <!-- true: ros2_control mock_components/GenericSystem instead of the Teensy -->
+  <xacro:arg name="use_mock_hardware" default="false"/>
+  <!-- false: no <ros2_control> tag at all (pure visualisation / MoveIt-side description) -->
+  <xacro:arg name="include_ros2_control" default="true"/>
+
+  <xacro:arg name="hand_side" default="right"/>
+  <xacro:arg name="hand_prefix" default="hand_"/>
+  <xacro:arg name="mount_config" default="$(find ar4_orca_description)/config/mount.yaml"/>
+
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_macro.xacro"/>
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar.ros2_control.xacro"/>
+  <xacro:include filename="$(find orcahand_ros_description)/urdf/orcahand.xacro"/>
+  <xacro:include filename="$(find ar4_orca_description)/urdf/parts/fixed_parts.xacro"/>
+
+  <xacro:property name="mount" value="${xacro.load_yaml('$(arg mount_config)')}"/>
+  <xacro:property name="tfp" value="$(arg tf_prefix)"/>
+
+  <!-- 1. arm -->
+  <link name="world"/>
+  <xacro:ar_robot
+    tf_prefix="$(arg tf_prefix)"
+    parent="world"
+    robot_parameters_file="$(find annin_ar4_description)/config/$(arg ar_model).yaml"
+    include_link6_flange="${(mount.get('arm') or dict()).get('link6_flange', True)}">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:ar_robot>
+
+  <!-- 2. fixed mounting parts (adapter, brackets, sensors ...) -->
+  <xacro:fixed_parts parts="${mount.get('parts', [])}" prefix="${tfp}"/>
+
+  <!-- 3. hand -->
+  <xacro:orcahand side="$(arg hand_side)" prefix="$(arg hand_prefix)"
+                  parent="${tfp}${mount['hand']['parent']}">
+    <origin xyz="${' '.join(str(v) for v in mount['hand']['xyz'])}"
+            rpy="${' '.join(str(v) for v in mount['hand']['rpy'])}"/>
+  </xacro:orcahand>
+
+  <!-- 4. arm hardware (hand hardware is NOT here: orcahand_driver handles it) -->
+  <xacro:if value="$(arg include_ros2_control)">
+    <xacro:property name="plugin" value="${'mock_components/GenericSystem' if '$(arg use_mock_hardware)'.lower() == 'true' else 'annin_ar4_driver/ARHardwareInterface'}"/>
+    <xacro:ar_ros2_control
+      ar_model="$(arg ar_model)"
+      plugin_name="${plugin}"
+      serial_port="$(arg serial_port)"
+      calibrate="$(arg calibrate)"
+      robot_parameters_file="$(find annin_ar4_description)/config/$(arg ar_model).yaml"
+      joint_offset_parameters_file="$(find annin_ar4_driver)/config/joint_offsets/$(arg ar_model).yaml"
+      driver_parameters_file="$(find annin_ar4_driver)/config/driver.yaml"
+      tf_prefix="$(arg tf_prefix)"/>
+  </xacro:if>
+</robot>

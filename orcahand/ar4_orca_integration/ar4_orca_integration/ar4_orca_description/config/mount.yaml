@@ -1,0 +1,48 @@
+# =============================================================================
+# AR4 flange -> (parts) -> ORCA hand.  THE place to edit the physical mounting.
+# Units: metres / radians.  rpy = fixed-axis roll, pitch, yaw (URDF convention):
+# the 3rd value (yaw) rotates about the parent's Z axis = the flange normal.
+# Arm frame names you can use as parent: ee_link (= link_6 origin, J6 axis = +Z), link_6, ...
+# =============================================================================
+
+# Arm-side options
+arm:
+  # false: the stock AR4 J6 flange part (Link_6_Aluminum, z = -17..0 mm in ee_link)
+  # is removed because the real robot uses hand_connector instead.
+  link6_flange: false
+
+parts:
+  # Custom arm<->hand connector (replaces the J6 flange AND the old adapter plate).
+  # STL from SolidWorks: mm, origin at a bounding-box corner, Y = thickness axis.
+  #   STL y = 4.25  : bottom of the shaft boss (seats on J6 where the stock flange seated)
+  #   STL y = 28.5  : top face (63 x 63 mm, 4 bolts on a 35 x 35 mm square) -> ORCA forearm
+  #   J6 axis       : STL (x, z) = (31.5, 31.5) mm (bore / plate / bolt-pattern centre)
+  #   rotation      : the bore's flat orients it; STL +Z -> ee_link -Y (same as stock flange)
+  # Part frame = centre of the boss seat face, +Z along the J6 axis toward the hand.
+  - name: hand_connector
+    parent: ee_link
+    xyz: [0, 0, -0.017]          # stock flange's seat face (Link_6_Aluminum bottom)
+    rpy: [0, 0, 0]
+    geometry: {type: mesh, filename: "package://ar4_orca_description/meshes/hand_connector.STL", scale: [0.001, 0.001, 0.001]}
+    visual_xyz: [-0.0315, 0.0315, -0.00425]   # moves STL point (31.5, 4.25, 31.5) mm to the frame origin
+    visual_rpy: [1.5707963, 0, 0]             # STL +Y -> +Z
+    color: [0.25, 0.25, 0.3, 1.0]
+
+  # Centre of the connector's top face (28.5 - 4.25 = 24.25 mm above the seat).
+  - name: hand_connector_top
+    parent: hand_connector
+    xyz: [0, 0, 0.02425]
+
+# Where the hand's root link (<hand_prefix>forearm) attaches.
+# The forearm mesh origin is NOT the centre of its base: the base face is 93 x 96 mm
+# centred at forearm-x = -10 mm, and the face is 58 mm below the origin.
+#   xyz x = +0.010 -> base centre on the J6 axis (assumes the connector is centred on the
+#                     forearm base; correct it if the real bolt holes are offset)
+#   xyz z = 0.058  -> base face sits on the connector top
+# rpy roll = 90 deg: the hand's finger axis (+Y of the hand model) -> parent +Z.
+# Change the yaw (3rd value) to turn the palm around the J6 axis (90 deg steps
+# match the square bolt pattern).
+hand:
+  parent: hand_connector_top
+  xyz: [0.010, 0, 0.058]
+  rpy: [1.5707963, 0, 0]

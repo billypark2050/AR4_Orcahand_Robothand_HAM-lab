@@ -1,0 +1,285 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-42efd742a926d723842e.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						15,
+						16,
+						17,
+						18,
+						19,
+						20,
+						21
+					]
+				},
+				{
+					"build" : "annin_ar4_driver__py",
+					"jsonFile" : "directory-annin_ar4_driver__py-0097c34f444e9bdb96c3.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/home/hamgist/RobotHand/build/annin_ar4_driver/annin_ar4_driver__py",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "annin_ar4_driver__rs",
+					"jsonFile" : "directory-annin_ar4_driver__rs-2affe8bdbf139d0653c1.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/home/hamgist/RobotHand/build/annin_ar4_driver/annin_ar4_driver__rs",
+					"targetIndexes" : 
+					[
+						14
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2
+					],
+					"name" : "annin_ar4_driver",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17,
+						18,
+						19,
+						20,
+						21
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_build_annin_ar4_driver_egg::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_build_annin_ar4_driver_egg-16acc63af191e8dd55ac.json",
+					"name" : "ament_cmake_python_build_annin_ar4_driver_egg",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_symlink_annin_ar4_driver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_symlink_annin_ar4_driver-b79642b2651bb9b9bb04.json",
+					"name" : "ament_cmake_python_symlink_annin_ar4_driver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver-f405d714280855891f80.json",
+					"name" : "annin_ar4_driver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__cpp-1dd75f93c43756368d41.json",
+					"name" : "annin_ar4_driver__cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "annin_ar4_driver__py::@ab0a1952e98edb49ff2b",
+					"jsonFile" : "target-annin_ar4_driver__py-e6c6e40aeab66f8c3303.json",
+					"name" : "annin_ar4_driver__py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_generator_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_generator_c-e224b8c67dd5baa918d6.json",
+					"name" : "annin_ar4_driver__rosidl_generator_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_generator_py::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_generator_py-96e15086d846ed22bfbf.json",
+					"name" : "annin_ar4_driver__rosidl_generator_py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_generator_type_description::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_generator_type_description-6e2d8d15d307c7ad4541.json",
+					"name" : "annin_ar4_driver__rosidl_generator_type_description",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_typesupport_c-77dc771a8ed4be175bcc.json",
+					"name" : "annin_ar4_driver__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_typesupport_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_typesupport_cpp-25aa92654e17303f6654.json",
+					"name" : "annin_ar4_driver__rosidl_typesupport_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_typesupport_fastrtps_c-702bb97300b6b7334199.json",
+					"name" : "annin_ar4_driver__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_typesupport_fastrtps_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_typesupport_fastrtps_cpp-0650b97b1df7d57e134f.json",
+					"name" : "annin_ar4_driver__rosidl_typesupport_fastrtps_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_typesupport_introspection_c-10b65fce7a0d8d1fa2d9.json",
+					"name" : "annin_ar4_driver__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver__rosidl_typesupport_introspection_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver__rosidl_typesupport_introspection_cpp-771f25481aaf56fdf870.json",
+					"name" : "annin_ar4_driver__rosidl_typesupport_introspection_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "annin_ar4_driver__rs::@2fc819de9f95daf15f22",
+					"jsonFile" : "target-annin_ar4_driver__rs-85146ca866696632e47d.json",
+					"name" : "annin_ar4_driver__rs",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver_hw::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver_hw-ca2903d6c8e8215497be.json",
+					"name" : "annin_ar4_driver_hw",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver_s__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver_s__rosidl_typesupport_c-4e26dba5239b924105f7.json",
+					"name" : "annin_ar4_driver_s__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver_s__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver_s__rosidl_typesupport_fastrtps_c-2c1c0a737c83da2c075f.json",
+					"name" : "annin_ar4_driver_s__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver_s__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver_s__rosidl_typesupport_introspection_c-9b06174884121f6897e8.json",
+					"name" : "annin_ar4_driver_s__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_driver_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_driver_uninstall-05078566433a2d4bc40a.json",
+					"name" : "annin_ar4_driver_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "run_arduino_nano::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-run_arduino_nano-8360394a426bdd1b3ec3.json",
+					"name" : "run_arduino_nano",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-e4c4489a589b2a51ab4c.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/hamgist/RobotHand/build/annin_ar4_driver",
+		"source" : "/home/hamgist/RobotHand/ar4_ros_driver/annin_ar4_driver"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

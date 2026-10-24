@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "annin_ar4_driver__py",
+		"source" : "/home/hamgist/RobotHand/build/annin_ar4_driver/annin_ar4_driver__py"
+	}
+}

@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<!--
+  Fixed (non-moving) parts read from a YAML list: adapter plates, camera mounts, brackets ...
+  Each entry becomes   <joint type="fixed"> parent -> name </joint>  +  <link name>  (with optional geometry).
+  Entries are attached in list order, so a part may use an earlier part as its parent.
+
+  Entry keys (see config/mount.yaml):
+    name, parent                  required
+    xyz, rpy                      optional, default 0   (part frame in parent frame)
+    geometry                      optional: {type: box, size: [x,y,z]}
+                                            {type: cylinder, radius: r, length: l}
+                                            {type: sphere, radius: r}
+                                            {type: mesh, filename: package://..., scale: [s,s,s]}
+    visual_xyz, visual_rpy        optional offset of the geometry inside the part frame
+    color                         optional [r,g,b,a]
+    collision                     optional bool (default true when geometry is given)
+-->
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <xacro:macro name="part_geometry" params="g">
+    <geometry>
+      <xacro:if value="${g['type'] == 'box'}">
+        <box size="${' '.join(str(v) for v in g['size'])}"/>
+      </xacro:if>
+      <xacro:if value="${g['type'] == 'cylinder'}">
+        <cylinder radius="${g['radius']}" length="${g['length']}"/>
+      </xacro:if>
+      <xacro:if value="${g['type'] == 'sphere'}">
+        <sphere radius="${g['radius']}"/>
+      </xacro:if>
+      <xacro:if value="${g['type'] == 'mesh'}">
+        <mesh filename="${g['filename']}" scale="${' '.join(str(v) for v in g.get('scale', [1, 1, 1]))}"/>
+      </xacro:if>
+    </geometry>
+  </xacro:macro>
+
+  <xacro:macro name="fixed_part" params="p prefix">
+    <xacro:property name="vxyz" value="${' '.join(str(v) for v in p.get('visual_xyz', [0, 0, 0]))}"/>
+    <xacro:property name="vrpy" value="${' '.join(str(v) for v in p.get('visual_rpy', [0, 0, 0]))}"/>
+    <joint name="${prefix}${p['name']}_joint" type="fixed">
+      <parent link="${prefix}${p['parent']}"/>
+      <child link="${prefix}${p['name']}"/>
+      <origin xyz="${' '.join(str(v) for v in p.get('xyz', [0, 0, 0]))}"
+              rpy="${' '.join(str(v) for v in p.get('rpy', [0, 0, 0]))}"/>
+    </joint>
+    <link name="${prefix}${p['name']}">
+      <xacro:if value="${'geometry' in p}">
+        <visual>
+          <origin xyz="${vxyz}" rpy="${vrpy}"/>
+          <xacro:part_geometry g="${p['geometry']}"/>
+          <material name="${prefix}${p['name']}_color">
+            <color rgba="${' '.join(str(v) for v in p.get('color', [0.6, 0.6, 0.6, 1.0]))}"/>
+          </material>
+        </visual>
+        <xacro:if value="${p.get('collision', True)}">
+          <collision>
+            <origin xyz="${vxyz}" rpy="${vrpy}"/>
+            <xacro:part_geometry g="${p['geometry']}"/>
+          </collision>
+        </xacro:if>
+      </xacro:if>
+    </link>
+  </xacro:macro>
+
+  <!-- recursion over the list (xacro has no for-loop) -->
+  <xacro:macro name="fixed_parts" params="parts prefix">
+    <xacro:if value="${len(parts) > 0}">
+      <xacro:fixed_part p="${parts[0]}" prefix="${prefix}"/>
+      <xacro:fixed_parts parts="${parts[1:]}" prefix="${prefix}"/>
+    </xacro:if>
+  </xacro:macro>
+</robot>

@@ -1,0 +1,115 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-d2937d71b20190e6b862.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "annin_ar4_keyboard_controll",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "annin_ar4_keyboard_controll_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-annin_ar4_keyboard_controll_uninstall-14e98dc9e272bf0d1489.json",
+					"name" : "annin_ar4_keyboard_controll_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "continuous_movement::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-continuous_movement-947e0275440ba39593c7.json",
+					"name" : "continuous_movement",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "dls_reduced_controller::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-dls_reduced_controller-4f515765a72227ee5711.json",
+					"name" : "dls_reduced_controller",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "keyboard_input_reader::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-keyboard_input_reader-86571568469c2c66d765.json",
+					"name" : "keyboard_input_reader",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "moveit_position_reader::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-moveit_position_reader-cf8b9705f1b7b134acb5.json",
+					"name" : "moveit_position_reader",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "movement_translator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-movement_translator-76b4d5d691f1c2602fe6.json",
+					"name" : "movement_translator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-95814537856a50077f7f.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/hamgist/RobotHand/build/annin_ar4_keyboard_controll",
+		"source" : "/home/hamgist/RobotHand/ar4_ros_driver/annin_ar4_keyboard_controll"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

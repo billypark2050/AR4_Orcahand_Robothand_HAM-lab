@@ -1,0 +1,90 @@
+[0.163s] Invoking command in '/home/hamgist/RobotHand/build/annin_ar4_moveit_demos': CMAKE_PREFIX_PATH=/home/hamgist/ros2_ws/install/ar4_orca_bringup:/home/hamgist/ros2_ws/install/ar4_orca_description:/home/hamgist/ros2_ws/install/orcahand_ros_description:/home/hamgist/ros2_ws/install/orcahand_driver:/opt/ros/jazzy:/home/hamgist/ros2_ws/install/orcahand_description:/home/hamgist/ros2_ws/install/annin_ar4_moveit_demos:/home/hamgist/ros2_ws/install/annin_ar4_moveit_config:/home/hamgist/ros2_ws/install/annin_ar4_keyboard_controll:/home/hamgist/ros2_ws/install/annin_ar4_gazebo:/home/hamgist/ros2_ws/install/annin_ar4_driver:/home/hamgist/ros2_ws/install/annin_ar4_description:/opt/ros/jazzy/opt/gz_sim_vendor:/opt/ros/jazzy/opt/gz_sensors_vendor:/opt/ros/jazzy/opt/gz_physics_vendor:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_gui_vendor:/opt/ros/jazzy/opt/gz_transport_vendor:/opt/ros/jazzy/opt/gz_rendering_vendor:/opt/ros/jazzy/opt/gz_plugin_vendor:/opt/ros/jazzy/opt/gz_fuel_tools_vendor:/opt/ros/jazzy/opt/gz_msgs_vendor:/opt/ros/jazzy/opt/gz_common_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_ogre_next_vendor:/opt/ros/jazzy/opt/gz_dartsim_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake /home/hamgist/RobotHand/ar4_ros_driver/annin_ar4_moveit_demos -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/hamgist/RobotHand/install/annin_ar4_moveit_demos
+[0.210s] -- The C compiler identification is GNU 13.3.0
+[0.256s] -- The CXX compiler identification is GNU 13.3.0
+[0.271s] -- Detecting C compiler ABI info
+[0.348s] -- Detecting C compiler ABI info - done
+[0.355s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.355s] -- Detecting C compile features
+[0.356s] -- Detecting C compile features - done
+[0.364s] -- Detecting CXX compiler ABI info
+[0.445s] -- Detecting CXX compiler ABI info - done
+[0.451s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.451s] -- Detecting CXX compile features
+[0.451s] -- Detecting CXX compile features - done
+[0.453s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.557s] -- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+[0.600s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[0.622s] -- Found moveit_ros_planning_interface: 2.12.4 (/opt/ros/jazzy/share/moveit_ros_planning_interface/cmake)
+[0.737s] -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found version "1.83.0") found components: date_time filesystem program_options system thread 
+[0.769s] -- Found rosidl_generator_c: 4.6.9 (/opt/ros/jazzy/share/rosidl_generator_c/cmake)
+[0.777s] -- Found rosidl_generator_cpp: 4.6.9 (/opt/ros/jazzy/share/rosidl_generator_cpp/cmake)
+[0.788s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.799s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.036s] -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found version "1.83.0") found components: chrono date_time filesystem iostreams program_options regex serialization system thread 
+[1.094s] -- Found parameter_traits: 0.7.3 (/opt/ros/jazzy/share/parameter_traits/cmake)
+[1.127s] -- Found rmw_implementation_cmake: 7.3.3 (/opt/ros/jazzy/share/rmw_implementation_cmake/cmake)
+[1.128s] -- Found rmw_fastrtps_cpp: 8.4.4 (/opt/ros/jazzy/share/rmw_fastrtps_cpp/cmake)
+[1.203s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.13")  
+[1.217s] -- Found FastRTPS: /opt/ros/jazzy/include (Required is at least version "2.13") 
+[1.234s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[1.295s] [0mCMake Deprecation Warning at /opt/ros/jazzy/share/tl_expected/cmake/tl_expectedConfig.cmake:37 (message):
+[1.295s]   Package 'tl_expected' is deprecated (This package will be removed in ROS 2
+[1.295s]   Lyrical Luth.
+[1.295s] 
+[1.295s]         Use tl/expected.hpp from libexpected-dev,
+[1.295s]         or rcpputils/tl_expected/expected.hpp if the system header is not available)
+[1.295s] Call Stack (most recent call first):
+[1.295s]   /opt/ros/jazzy/share/parameter_traits/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+[1.295s]   /opt/ros/jazzy/share/parameter_traits/cmake/parameter_traitsConfig.cmake:41 (include)
+[1.295s]   /opt/ros/jazzy/share/generate_parameter_library/cmake/generate_parameter_library-extras.cmake:30 (find_package)
+[1.295s]   /opt/ros/jazzy/share/generate_parameter_library/cmake/generate_parameter_libraryConfig.cmake:41 (include)
+[1.295s]   /opt/ros/jazzy/share/moveit_core/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+[1.295s]   /opt/ros/jazzy/share/moveit_core/cmake/moveit_coreConfig.cmake:41 (include)
+[1.295s]   /opt/ros/jazzy/share/moveit_ros_planning_interface/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+[1.295s]   /opt/ros/jazzy/share/moveit_ros_planning_interface/cmake/moveit_ros_planning_interfaceConfig.cmake:41 (include)
+[1.295s]   CMakeLists.txt:10 (find_package)
+[1.295s] 
+[1.295s] [0m
+[1.298s] -- Found rclcpp_lifecycle: 28.1.21 (/opt/ros/jazzy/share/rclcpp_lifecycle/cmake)
+[1.366s] -- Found Eigen3: TRUE (found version "3.4.0") 
+[1.366s] -- Ensuring Eigen3 include directory is part of orocos-kdl CMake target
+[1.486s] -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found version "1.83.0") found components: system filesystem date_time program_options thread chrono 
+[1.519s] -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found version "1.83.0") found components: thread system filesystem regex date_time program_options 
+[1.539s] -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found version "1.83.0") found components: system filesystem date_time program_options thread 
+[1.568s] -- Found ament_lint_auto: 0.17.5 (/opt/ros/jazzy/share/ament_lint_auto/cmake)
+[1.636s] -- Added test 'cppcheck' to perform static code analysis on C / C++ code
+[1.636s] -- Configured cppcheck include dirs: 
+[1.636s] -- Configured cppcheck exclude dirs and/or files: 
+[1.637s] -- Added test 'lint_cmake' to check CMake code style
+[1.638s] -- Added test 'uncrustify' to check C / C++ code style
+[1.638s] -- Configured uncrustify additional arguments: 
+[1.638s] -- Added test 'xmllint' to check XML markup files
+[1.639s] -- Configuring done (1.5s)
+[1.663s] -- Generating done (0.0s)
+[1.667s] -- Build files have been written to: /home/hamgist/RobotHand/build/annin_ar4_moveit_demos
+[1.677s] Invoked command in '/home/hamgist/RobotHand/build/annin_ar4_moveit_demos' returned '0': CMAKE_PREFIX_PATH=/home/hamgist/ros2_ws/install/ar4_orca_bringup:/home/hamgist/ros2_ws/install/ar4_orca_description:/home/hamgist/ros2_ws/install/orcahand_ros_description:/home/hamgist/ros2_ws/install/orcahand_driver:/opt/ros/jazzy:/home/hamgist/ros2_ws/install/orcahand_description:/home/hamgist/ros2_ws/install/annin_ar4_moveit_demos:/home/hamgist/ros2_ws/install/annin_ar4_moveit_config:/home/hamgist/ros2_ws/install/annin_ar4_keyboard_controll:/home/hamgist/ros2_ws/install/annin_ar4_gazebo:/home/hamgist/ros2_ws/install/annin_ar4_driver:/home/hamgist/ros2_ws/install/annin_ar4_description:/opt/ros/jazzy/opt/gz_sim_vendor:/opt/ros/jazzy/opt/gz_sensors_vendor:/opt/ros/jazzy/opt/gz_physics_vendor:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_gui_vendor:/opt/ros/jazzy/opt/gz_transport_vendor:/opt/ros/jazzy/opt/gz_rendering_vendor:/opt/ros/jazzy/opt/gz_plugin_vendor:/opt/ros/jazzy/opt/gz_fuel_tools_vendor:/opt/ros/jazzy/opt/gz_msgs_vendor:/opt/ros/jazzy/opt/gz_common_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_ogre_next_vendor:/opt/ros/jazzy/opt/gz_dartsim_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake /home/hamgist/RobotHand/ar4_ros_driver/annin_ar4_moveit_demos -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/hamgist/RobotHand/install/annin_ar4_moveit_demos
+[1.678s] Invoking command in '/home/hamgist/RobotHand/build/annin_ar4_moveit_demos': CMAKE_PREFIX_PATH=/home/hamgist/ros2_ws/install/ar4_orca_bringup:/home/hamgist/ros2_ws/install/ar4_orca_description:/home/hamgist/ros2_ws/install/orcahand_ros_description:/home/hamgist/ros2_ws/install/orcahand_driver:/opt/ros/jazzy:/home/hamgist/ros2_ws/install/orcahand_description:/home/hamgist/ros2_ws/install/annin_ar4_moveit_demos:/home/hamgist/ros2_ws/install/annin_ar4_moveit_config:/home/hamgist/ros2_ws/install/annin_ar4_keyboard_controll:/home/hamgist/ros2_ws/install/annin_ar4_gazebo:/home/hamgist/ros2_ws/install/annin_ar4_driver:/home/hamgist/ros2_ws/install/annin_ar4_description:/opt/ros/jazzy/opt/gz_sim_vendor:/opt/ros/jazzy/opt/gz_sensors_vendor:/opt/ros/jazzy/opt/gz_physics_vendor:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_gui_vendor:/opt/ros/jazzy/opt/gz_transport_vendor:/opt/ros/jazzy/opt/gz_rendering_vendor:/opt/ros/jazzy/opt/gz_plugin_vendor:/opt/ros/jazzy/opt/gz_fuel_tools_vendor:/opt/ros/jazzy/opt/gz_msgs_vendor:/opt/ros/jazzy/opt/gz_common_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_ogre_next_vendor:/opt/ros/jazzy/opt/gz_dartsim_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --build /home/hamgist/RobotHand/build/annin_ar4_moveit_demos -- -j32 -l32
+[1.716s] [ 50%] [32mBuilding CXX object CMakeFiles/coordinate_pos_loop_demo.dir/src/coordinate_pos_loop_demo.cpp.o[0m
+[7.384s] [100%] [32m[1mLinking CXX executable coordinate_pos_loop_demo[0m
+[7.703s] [100%] Built target coordinate_pos_loop_demo
+[7.713s] Invoked command in '/home/hamgist/RobotHand/build/annin_ar4_moveit_demos' returned '0': CMAKE_PREFIX_PATH=/home/hamgist/ros2_ws/install/ar4_orca_bringup:/home/hamgist/ros2_ws/install/ar4_orca_description:/home/hamgist/ros2_ws/install/orcahand_ros_description:/home/hamgist/ros2_ws/install/orcahand_driver:/opt/ros/jazzy:/home/hamgist/ros2_ws/install/orcahand_description:/home/hamgist/ros2_ws/install/annin_ar4_moveit_demos:/home/hamgist/ros2_ws/install/annin_ar4_moveit_config:/home/hamgist/ros2_ws/install/annin_ar4_keyboard_controll:/home/hamgist/ros2_ws/install/annin_ar4_gazebo:/home/hamgist/ros2_ws/install/annin_ar4_driver:/home/hamgist/ros2_ws/install/annin_ar4_description:/opt/ros/jazzy/opt/gz_sim_vendor:/opt/ros/jazzy/opt/gz_sensors_vendor:/opt/ros/jazzy/opt/gz_physics_vendor:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_gui_vendor:/opt/ros/jazzy/opt/gz_transport_vendor:/opt/ros/jazzy/opt/gz_rendering_vendor:/opt/ros/jazzy/opt/gz_plugin_vendor:/opt/ros/jazzy/opt/gz_fuel_tools_vendor:/opt/ros/jazzy/opt/gz_msgs_vendor:/opt/ros/jazzy/opt/gz_common_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_ogre_next_vendor:/opt/ros/jazzy/opt/gz_dartsim_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --build /home/hamgist/RobotHand/build/annin_ar4_moveit_demos -- -j32 -l32
+[7.714s] Invoking command in '/home/hamgist/RobotHand/build/annin_ar4_moveit_demos': CMAKE_PREFIX_PATH=/home/hamgist/ros2_ws/install/ar4_orca_bringup:/home/hamgist/ros2_ws/install/ar4_orca_description:/home/hamgist/ros2_ws/install/orcahand_ros_description:/home/hamgist/ros2_ws/install/orcahand_driver:/opt/ros/jazzy:/home/hamgist/ros2_ws/install/orcahand_description:/home/hamgist/ros2_ws/install/annin_ar4_moveit_demos:/home/hamgist/ros2_ws/install/annin_ar4_moveit_config:/home/hamgist/ros2_ws/install/annin_ar4_keyboard_controll:/home/hamgist/ros2_ws/install/annin_ar4_gazebo:/home/hamgist/ros2_ws/install/annin_ar4_driver:/home/hamgist/ros2_ws/install/annin_ar4_description:/opt/ros/jazzy/opt/gz_sim_vendor:/opt/ros/jazzy/opt/gz_sensors_vendor:/opt/ros/jazzy/opt/gz_physics_vendor:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_gui_vendor:/opt/ros/jazzy/opt/gz_transport_vendor:/opt/ros/jazzy/opt/gz_rendering_vendor:/opt/ros/jazzy/opt/gz_plugin_vendor:/opt/ros/jazzy/opt/gz_fuel_tools_vendor:/opt/ros/jazzy/opt/gz_msgs_vendor:/opt/ros/jazzy/opt/gz_common_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_ogre_next_vendor:/opt/ros/jazzy/opt/gz_dartsim_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --install /home/hamgist/RobotHand/build/annin_ar4_moveit_demos
+[7.721s] -- Install configuration: ""
+[7.722s] -- Execute custom install script
+[7.722s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/lib/annin_ar4_moveit_demos/coordinate_pos_loop_demo
+[7.730s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/ament_index/resource_index/package_run_dependencies/annin_ar4_moveit_demos
+[7.737s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/ament_index/resource_index/parent_prefix_path/annin_ar4_moveit_demos
+[7.744s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/environment/ament_prefix_path.sh
+[7.751s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/environment/ament_prefix_path.dsv
+[7.758s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/environment/path.sh
+[7.765s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/environment/path.dsv
+[7.772s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/local_setup.bash
+[7.779s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/local_setup.sh
+[7.785s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/local_setup.zsh
+[7.791s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/local_setup.dsv
+[7.798s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/package.dsv
+[7.804s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/ament_index/resource_index/packages/annin_ar4_moveit_demos
+[7.811s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/cmake/annin_ar4_moveit_demosConfig.cmake
+[7.817s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/cmake/annin_ar4_moveit_demosConfig-version.cmake
+[7.823s] -- Symlinking: /home/hamgist/RobotHand/install/annin_ar4_moveit_demos/share/annin_ar4_moveit_demos/package.xml
+[7.831s] Invoked command in '/home/hamgist/RobotHand/build/annin_ar4_moveit_demos' returned '0': CMAKE_PREFIX_PATH=/home/hamgist/ros2_ws/install/ar4_orca_bringup:/home/hamgist/ros2_ws/install/ar4_orca_description:/home/hamgist/ros2_ws/install/orcahand_ros_description:/home/hamgist/ros2_ws/install/orcahand_driver:/opt/ros/jazzy:/home/hamgist/ros2_ws/install/orcahand_description:/home/hamgist/ros2_ws/install/annin_ar4_moveit_demos:/home/hamgist/ros2_ws/install/annin_ar4_moveit_config:/home/hamgist/ros2_ws/install/annin_ar4_keyboard_controll:/home/hamgist/ros2_ws/install/annin_ar4_gazebo:/home/hamgist/ros2_ws/install/annin_ar4_driver:/home/hamgist/ros2_ws/install/annin_ar4_description:/opt/ros/jazzy/opt/gz_sim_vendor:/opt/ros/jazzy/opt/gz_sensors_vendor:/opt/ros/jazzy/opt/gz_physics_vendor:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_gui_vendor:/opt/ros/jazzy/opt/gz_transport_vendor:/opt/ros/jazzy/opt/gz_rendering_vendor:/opt/ros/jazzy/opt/gz_plugin_vendor:/opt/ros/jazzy/opt/gz_fuel_tools_vendor:/opt/ros/jazzy/opt/gz_msgs_vendor:/opt/ros/jazzy/opt/gz_common_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_ogre_next_vendor:/opt/ros/jazzy/opt/gz_dartsim_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --install /home/hamgist/RobotHand/build/annin_ar4_moveit_demos

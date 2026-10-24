@@ -1,0 +1,41 @@
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Configuring done (0.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/hamgist/RobotHand/build/ar4_orca_description
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/urdf/ar4_orca.urdf.xacro
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/urdf/parts/fixed_parts.xacro
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/launch/view_ar4_orca.launch.py
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/rviz/ar4_orca.rviz
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/config/mount.yaml
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/lib/ar4_orca_description/check_model.py
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ament_index/resource_index/package_run_dependencies/ar4_orca_description
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ament_index/resource_index/parent_prefix_path/ar4_orca_description
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/environment/ament_prefix_path.sh
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/environment/ament_prefix_path.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/environment/path.sh
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/environment/path.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/local_setup.bash
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/local_setup.sh
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/local_setup.zsh
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/local_setup.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/package.dsv
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ament_index/resource_index/packages/ar4_orca_description
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/cmake/ar4_orca_descriptionConfig.cmake
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/cmake/ar4_orca_descriptionConfig-version.cmake
+-- Symlinking: /home/hamgist/RobotHand/install/ar4_orca_description/share/ar4_orca_description/package.xml

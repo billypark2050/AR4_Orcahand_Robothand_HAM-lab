@@ -1,0 +1,20 @@
+# Which action server executes each planning group (names use the default prefixes;
+# launch/moveit.launch.py renames them for other prefixes).
+moveit_simple_controller_manager:
+  controller_names:
+    - joint_trajectory_controller
+    - orcahand_driver
+
+  # AR4: ros2_control JointTrajectoryController -> /joint_trajectory_controller/follow_joint_trajectory
+  joint_trajectory_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6]
+
+  # ORCA: orcahand_driver node -> /orcahand_driver/follow_joint_trajectory
+  orcahand_driver:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [hand_wrist, hand_thumb_cmc, hand_thumb_abd, hand_thumb_mcp, hand_thumb_dip, hand_index_abd, hand_index_mcp, hand_index_pip, hand_middle_abd, hand_middle_mcp, hand_middle_pip, hand_ring_abd, hand_ring_mcp, hand_ring_pip, hand_pinky_abd, hand_pinky_mcp, hand_pinky_pip]

@@ -1,0 +1,1 @@
+ament_cmake_symlink_install_targets("TARGET_FILES" "/home/hamgist/RobotHand/build/annin_ar4_driver/rosidl_generator_py/annin_ar4_driver/annin_ar4_driver_s__rosidl_typesupport_fastrtps_c.so" "TARGETS" "annin_ar4_driver_s__rosidl_typesupport_fastrtps_c" "DESTINATION" "lib/python3.12/site-packages/annin_ar4_driver")

@@ -1,0 +1,11 @@
+{
+  "package_name": "annin_ar4_driver",
+  "output_dir": "/home/hamgist/RobotHand/build/annin_ar4_driver/rosidl_generator_type_description/annin_ar4_driver",
+  "idl_tuples": [
+    "/home/hamgist/RobotHand/build/annin_ar4_driver/rosidl_adapter/annin_ar4_driver:srv/CalibrateMask.idl"
+  ],
+  "include_paths": [
+    "service_msgs:/opt/ros/jazzy/share/service_msgs",
+    "builtin_interfaces:/opt/ros/jazzy/share/builtin_interfaces"
+  ]
+}

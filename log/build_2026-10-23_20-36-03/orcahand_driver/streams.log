@@ -1,0 +1,19 @@
+[0.736s] Invoking command in '/home/hamgist/RobotHand/build/orcahand_driver': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/hamgist/RobotHand/build/orcahand_driver/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/hamgist/RobotHand/install/orcahand_driver/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/hamgist/RobotHand/build/orcahand_driver/build --no-deps symlink_data
+[0.895s] running develop
+[0.989s] running egg_info
+[0.998s] writing orcahand_driver.egg-info/PKG-INFO
+[0.998s] writing dependency_links to orcahand_driver.egg-info/dependency_links.txt
+[0.998s] writing entry points to orcahand_driver.egg-info/entry_points.txt
+[0.998s] writing requirements to orcahand_driver.egg-info/requires.txt
+[0.998s] writing top-level names to orcahand_driver.egg-info/top_level.txt
+[1.015s] reading manifest file 'orcahand_driver.egg-info/SOURCES.txt'
+[1.016s] writing manifest file 'orcahand_driver.egg-info/SOURCES.txt'
+[1.025s] running build_ext
+[1.025s] Creating /home/hamgist/RobotHand/install/orcahand_driver/lib/python3.12/site-packages/orcahand-driver.egg-link (link to .)
+[1.025s] Installing hand_pose script to /home/hamgist/RobotHand/install/orcahand_driver/lib/orcahand_driver
+[1.026s] Installing orcahand_driver script to /home/hamgist/RobotHand/install/orcahand_driver/lib/orcahand_driver
+[1.026s] Installing slider_relay script to /home/hamgist/RobotHand/install/orcahand_driver/lib/orcahand_driver
+[1.026s] 
+[1.026s] Installed /home/hamgist/RobotHand/build/orcahand_driver
+[1.026s] running symlink_data
+[1.043s] Invoked command in '/home/hamgist/RobotHand/build/orcahand_driver' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/hamgist/RobotHand/build/orcahand_driver/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/hamgist/RobotHand/install/orcahand_driver/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/hamgist/RobotHand/build/orcahand_driver/build --no-deps symlink_data

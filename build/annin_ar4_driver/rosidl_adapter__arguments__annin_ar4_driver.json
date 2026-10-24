@@ -1,0 +1,6 @@
+{
+  "package_name": "annin_ar4_driver",
+  "non_idl_tuples": [
+    "/home/hamgist/RobotHand/ar4_ros_driver/annin_ar4_driver:srv/CalibrateMask.srv"
+  ]
+}

@@ -1,0 +1,18 @@
+orcahand_driver:
+  ros__parameters:
+    # Point this at the config.yaml you CALIBRATED with (calibration.yaml lives next to it).
+    # '' = autodetect the connected hand and use the packaged model of the installed orca_core.
+    config_path: ""
+    calibration_path: ""
+    model_name: ""
+    mock: false
+    joint_prefix: "hand_"
+    control_rate: 50.0
+    max_joint_speed_deg_s: 180.0
+    auto_start: true
+    move_to_neutral_on_start: true
+    disable_torque_on_shutdown: true
+    joint_states_topic: "/joint_states"
+    goal_tolerance_deg: 15.0
+    strict_goal_check: false
+    goal_settle_time: 0.5

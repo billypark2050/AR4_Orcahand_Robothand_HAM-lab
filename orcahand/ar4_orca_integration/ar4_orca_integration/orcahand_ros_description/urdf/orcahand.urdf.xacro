@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- Standalone hand (for viewing / testing the hand driver without the arm). -->
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="orcahand">
+  <xacro:arg name="side" default="right"/>
+  <xacro:arg name="prefix" default="hand_"/>
+  <xacro:include filename="$(find orcahand_ros_description)/urdf/orcahand.xacro"/>
+  <link name="world"/>
+  <xacro:orcahand side="$(arg side)" prefix="$(arg prefix)" parent="world">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:orcahand>
+</robot>

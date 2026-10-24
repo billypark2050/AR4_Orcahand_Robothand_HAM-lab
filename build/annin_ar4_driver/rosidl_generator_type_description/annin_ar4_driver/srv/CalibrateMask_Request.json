@@ -1,0 +1,26 @@
+{
+  "type_description_msg": {
+    "type_description": {
+      "type_name": "annin_ar4_driver/srv/CalibrateMask_Request",
+      "fields": [
+        {
+          "name": "mask",
+          "type": {
+            "type_id": 17,
+            "capacity": 0,
+            "string_capacity": 0,
+            "nested_type_name": ""
+          },
+          "default_value": ""
+        }
+      ]
+    },
+    "referenced_type_descriptions": []
+  },
+  "type_hashes": [
+    {
+      "type_name": "annin_ar4_driver/srv/CalibrateMask_Request",
+      "hash_string": "RIHS01_9bcf16f5fe8c2b81990b6e483cb814d34537559ae125c0cb44b0a178c7003587"
+    }
+  ]
+}

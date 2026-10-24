@@ -1,0 +1,4 @@
+[console_scripts]
+hand_pose = orcahand_driver.hand_pose:main
+orcahand_driver = orcahand_driver.hand_driver_node:main
+slider_relay = orcahand_driver.slider_relay:main

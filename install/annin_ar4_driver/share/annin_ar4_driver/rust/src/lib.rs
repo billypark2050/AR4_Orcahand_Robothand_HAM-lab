@@ -1,0 +1,1 @@
+/home/hamgist/RobotHand/build/annin_ar4_driver/rosidl_generator_rs/annin_ar4_driver/rust/src/lib.rs

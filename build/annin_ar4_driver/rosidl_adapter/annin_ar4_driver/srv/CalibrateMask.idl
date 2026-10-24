@@ -1,0 +1,17 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from annin_ar4_driver/srv/CalibrateMask.srv
+// generated code does not contain a copyright notice
+
+
+module annin_ar4_driver {
+  module srv {
+    struct CalibrateMask_Request {
+      string mask;
+    };
+    struct CalibrateMask_Response {
+      boolean success;
+
+      string message;
+    };
+  };
+};

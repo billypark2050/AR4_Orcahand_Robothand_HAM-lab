@@ -1,0 +1,1 @@
+ament_cmake_symlink_install_targets("TARGET_FILES" "/home/hamgist/RobotHand/build/annin_ar4_moveit_demos/coordinate_pos_loop_demo" "TARGETS" "coordinate_pos_loop_demo" "DESTINATION" "lib/annin_ar4_moveit_demos")
