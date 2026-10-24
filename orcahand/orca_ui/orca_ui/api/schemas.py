@@ -1,0 +1,221 @@
+"""Pydantic request bodies. Responses are plain dicts assembled by the
+service layer (they double as WS payloads); these models exist to validate
+what clients send."""
+
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
+
+
+class JointTargets(BaseModel):
+    angles: dict[str, float]
+
+
+class ModelSelectRequest(BaseModel):
+    """Which hand config to run. ``name`` null hands the choice back to
+    hardware detection; ``version`` defaults to the model's newest."""
+
+    name: Optional[str] = None
+    version: Optional[str] = None
+
+
+class BoardSelectRequest(BaseModel):
+    """Which board this console owns. ``device`` null returns the choice to
+    first-to-answer; otherwise a device path from ``GET /api/boards``."""
+
+    device: Optional[str] = None
+
+
+class HardwareVersionRequest(BaseModel):
+    """The hand's hardware version to pin in its config.yaml (2 = v2.0,
+    21 = v2.1), or null to put it back on ``auto`` so the board decides."""
+
+    version: Optional[int] = Field(default=None, ge=0, le=255)
+
+
+class TorqueRequest(BaseModel):
+    # Reserved for future per-motor control; today torque toggles hand-wide.
+    motor_ids: Optional[list[int]] = None
+
+
+class GainsRequest(BaseModel):
+    kp: float = Field(ge=0)
+    ki: float = Field(ge=0)
+    correction_max_deg: float = Field(gt=0)
+    # null = every loop-controlled joint; a joint list writes exactly those.
+    joints: Optional[list[str]] = None
+
+
+class GainsResetRequest(BaseModel):
+    """Restore the config gains; null joints = every loop-controlled joint."""
+
+    joints: Optional[list[str]] = None
+
+
+class MaxCurrentRequest(BaseModel):
+    ma: int = Field(gt=0, le=2000)
+
+
+class ServoGainsRequest(BaseModel):
+    """Servo position-PID and feedforward gains. Omitted fields are left as
+    they are on the motor, so one gain can be nudged without restating the
+    rest. Ranges match the X-series registers (unsigned 16-bit, and the
+    e-manual's 0..16383 limit on the PID terms)."""
+
+    kp: int | None = Field(default=None, ge=0, le=16383)
+    ki: int | None = Field(default=None, ge=0, le=16383)
+    kd: int | None = Field(default=None, ge=0, le=16383)
+    ff_1st: int | None = Field(default=None, ge=0, le=16383)
+    ff_2nd: int | None = Field(default=None, ge=0, le=16383)
+
+
+class ServoProfileRequest(BaseModel):
+    """Trajectory limits in SI units. 0 disables a limit: no speed cap, or
+    instantaneous acceleration. Omitted fields are left as they are."""
+
+    velocity_rad_s: float | None = Field(default=None, ge=0, le=100)
+    acceleration_rad_s2: float | None = Field(default=None, ge=0, le=10000)
+
+
+class PoseSourceRequest(BaseModel):
+    """Which stream the 3D model follows. "auto" tracks the torque state:
+    motor estimate while limp, commanded targets once torqued."""
+
+    mode: Literal["auto", "estimate", "target"]
+
+
+class TactileModeRequest(BaseModel):
+    mode: Literal["resultant", "taxels", "combined"]
+
+
+class DirectMotorModeRequest(BaseModel):
+    enabled: bool
+
+
+class DirectMotorPositionRequest(BaseModel):
+    id: int = Field(ge=0)
+    position: float  # motor position in radians; step-clamped server-side
+
+
+class MotorTorqueRequest(BaseModel):
+    id: int = Field(ge=0)
+    enabled: bool
+
+
+class MotorRangeRequest(BaseModel):
+    id: int = Field(ge=0)
+    # Both None clears the range and puts the motor back on its full travel.
+    low: float | None = None
+    high: float | None = None
+
+
+class MotorPointsRequest(BaseModel):
+    id: int = Field(ge=0)
+    # None or empty clears the recording.
+    points: "list[float] | None" = None
+
+
+class MotorPlaybackRequest(BaseModel):
+    id: int = Field(ge=0)
+    enabled: bool
+
+
+class MotorDeclareRequest(BaseModel):
+    id: int = Field(ge=0)
+    model: "str | None" = None
+    nickname: "str | None" = None
+
+
+class ZeroRequest(BaseModel):
+    num_samples: int = Field(default=100, ge=1, le=2000)
+
+
+class SweepRequest(BaseModel):
+    """Dev-only (mock): sweep one joint through its ROM; null joint stops."""
+
+    joint: Optional[str] = None
+    period_s: float = Field(default=4.0, gt=0.1, le=60)
+
+
+class OperationStartRequest(BaseModel):
+    """Per-kind parameters are validated by the operation itself (the set of
+    kinds is registration-dependent: real vs mock)."""
+
+    params: dict = Field(default_factory=dict)
+
+
+class OperationInputRequest(BaseModel):
+    """Answer to an operation parked in ``awaiting_input``."""
+
+    value: str
+
+
+class PoseSaveRequest(BaseModel):
+    angles: dict[str, float]
+
+
+class PoseCaptureRequest(BaseModel):
+    name: str
+
+
+class TeleopStartRequest(BaseModel):
+    """Start a teleop session. ``managed`` spawns the orca_teleop streamer
+    child; ``external`` just mints a token for a manually-launched one."""
+
+    source: str
+    mode: Literal["managed", "external"] = "managed"
+    config: dict = Field(default_factory=dict)
+
+
+class TeleopEngageRequest(BaseModel):
+    ramp_s: Optional[float] = Field(default=None, ge=0, le=10)
+
+
+class TeleopConfigRequest(BaseModel):
+    """Partial config update, forwarded to the streamer child (recognized
+    keys are filtered by the manager)."""
+
+    config: dict = Field(default_factory=dict)
+
+
+class TrajectoryToMotorRequest(BaseModel):
+    """Translate a joint waypoint recording to motor space; ``save_as``
+    names the copy (default: <name>_motor)."""
+
+    save_as: Optional[str] = Field(default=None, max_length=64,
+                                   pattern=r"^[A-Za-z0-9_\-]+$")
+
+
+class TrajectoryUpdateRequest(BaseModel):
+    """Waypoint-editor save: full replacement waypoint list (row order =
+    the recording's joint_ids). ``save_as`` writes a copy under a new name
+    instead of overwriting."""
+
+    waypoints: list[list[float]]
+    save_as: Optional[str] = Field(default=None, max_length=64,
+                                   pattern=r"^[A-Za-z0-9_\-]+$")
+
+
+
+
+class BenchPacingRequest(BaseModel):
+    """How bench playback paces itself. Mirrors the trajectory player."""
+
+    interp_steps: int = 1
+    max_settle_ms: "int | None" = None
+    period_ms: "int | None" = None
+
+
+class MotorConfigWriteRequest(BaseModel):
+    """One configuration register on one motor."""
+
+    key: str
+    value: int
+
+
+class BusBaudRequest(BaseModel):
+    """A new rate for every motor on the bus."""
+
+    baud_rate: int

@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Frontend
+node_modules/
+.superpowers/
+
+# Where orca-dev remembers this machine's orca_core checkout
+.orca-dev.json
+
+# Personal Claude Code instructions, never committed
+CLAUDE.local.md

@@ -1,0 +1,330 @@
+// Motor control with scripts/slider_joint.py parity: per-joint sliders
+// seeded from the current pose (on mount and on every torque enable, never
+// rewritten from the stream afterwards), torque enable/disable, neutral,
+// and for feedback hands live meas/trim readouts. Everything is gated on
+// the control-source owner: while an operation (or maintenance) owns the
+// hand, manual commands are disabled with a tooltip naming the owner.
+
+import { useEffect, useRef, useState } from 'react'
+import { api } from '../../api/rest'
+import type { JointInfo } from '../../api/types'
+import { useStreamFrame } from '../../hooks/useStreamFrame'
+import { useAppStore } from '../../state/appStore'
+import { MotorRegisterPanel } from './MotorRegisterPanel'
+import { BusBaudPanel } from './BusBaudPanel'
+import { sendTarget } from '../../state/commandBus'
+import { useControlGate } from '../../state/operationStore'
+import { Panel } from '../common/Panel'
+import { DirectMotorPanel } from './DirectMotorPanel'
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+function seedFromPose(
+  joints: JointInfo[],
+  pose: Record<string, number>,
+): Record<string, number> {
+  const values: Record<string, number> = {}
+  for (const joint of joints) {
+    const [lo, hi] = joint.rom
+    const raw = pose[joint.id]
+    values[joint.id] = clamp(Number.isFinite(raw) ? raw : 0, lo, hi)
+  }
+  return values
+}
+
+export function MotorPanel() {
+  const handInfo = useAppStore((s) => s.handInfo)
+  const status = useAppStore((s) => s.status)
+  const control = useAppStore((s) => s.control)
+  const setError = useAppStore((s) => s.setError)
+  const gate = useControlGate()
+  const bare = status?.bare ?? false
+
+  const [values, setValues] = useState<Record<string, number>>({})
+  const [busy, setBusy] = useState(false)
+  const [tableOpen, setTableOpen] = useState(false)
+  const [baudOpen, setBaudOpen] = useState(false)
+  const seeded = useRef(false)
+  const wasLocked = useRef(false)
+
+  // Re-seed after control returns to manual: a replay/teleop session moved
+  // the hand, so the latched slider values are stale and the first touch
+  // would yank the joint back to wherever the slider was left.
+  useEffect(() => {
+    if (wasLocked.current && gate.manualAllowed) seeded.current = false
+    wasLocked.current = !gate.manualAllowed
+  }, [gate.manualAllowed])
+
+  const caps = status?.capabilities
+  const torqueOn = control?.torque_enabled ?? false
+  const feedback = caps?.feedback_loop ?? false
+  const locked = !gate.manualAllowed
+  const lockReason = gate.reason ?? undefined
+  const directArmed = control?.direct_motor_mode ?? false
+  // Motor limits/ratios unrecorded: _joint_to_motor_pos maps every joint to
+  // None and the write is dropped, so a slider move is silently a no-op.
+  const uncalibrated = handInfo?.calibration.motors === false
+
+  // Initial seed: latch the first available pose (measured, else estimate)
+  // so opening the panel never yanks the hand.
+  useStreamFrame((frames) => {
+    if (seeded.current || !handInfo) return
+    const pose = Object.keys(frames.joints.measured).length
+      ? { ...frames.joints.estimate, ...frames.joints.measured }
+      : frames.joints.estimate
+    if (Object.keys(pose).length === 0) return
+    seeded.current = true
+    setValues(seedFromPose(handInfo.joints, pose))
+  })
+
+  if (!handInfo || !caps?.motors) return null
+  const joints = handInfo.joints
+
+  const enableTorque = async () => {
+    setBusy(true)
+    try {
+      const { seed } = await api.torqueEnable()
+      setValues(seedFromPose(joints, seed))
+      seeded.current = true
+      setError(null)
+    } catch (error) {
+      setError(String((error as Error).message ?? error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disableTorque = async () => {
+    try {
+      await api.torqueDisable()
+    } catch (error) {
+      setError(String((error as Error).message ?? error))
+    }
+  }
+
+  const goNeutral = async () => {
+    try {
+      await api.jointsNeutral()
+      const neutral: Record<string, number> = {}
+      for (const joint of joints) neutral[joint.id] = joint.neutral
+      setValues(seedFromPose(joints, neutral))
+    } catch (error) {
+      setError(String((error as Error).message ?? error))
+    }
+  }
+
+  const onSlide = (joint: JointInfo, value: number) => {
+    setValues((prev) => ({ ...prev, [joint.id]: value }))
+    sendTarget(joint.id, value)
+  }
+
+  const toolbar = (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      {bare && (
+        <>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn-secondary"
+              title="read and change this motor's configuration registers"
+              onClick={() => {
+                setBaudOpen(false)
+                setTableOpen((v) => !v)
+              }}
+            >
+              Control table
+            </button>
+            {tableOpen && (
+              <MotorRegisterPanel onClose={() => setTableOpen(false)} />
+            )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn-secondary"
+              title="change the baud rate of every motor on the bus"
+              onClick={() => {
+                setTableOpen(false)
+                setBaudOpen((v) => !v)
+              }}
+            >
+              Bus baud
+            </button>
+            {baudOpen && <BusBaudPanel onClose={() => setBaudOpen(false)} />}
+          </div>
+        </>
+      )}
+      {!torqueOn ? (
+        <button
+          className="btn btn-primary"
+          disabled={busy || locked}
+          title={lockReason}
+          onClick={() => void enableTorque()}
+        >
+          Enable Torque
+        </button>
+      ) : (
+        <button
+          className="btn btn-danger"
+          disabled={locked}
+          title={lockReason}
+          onClick={() => void disableTorque()}
+        >
+          Disable Torque
+        </button>
+      )}
+      <button
+        className="btn btn-secondary"
+        disabled={!torqueOn || locked || uncalibrated}
+        title={uncalibrated ? 'hand is not calibrated' : lockReason}
+        onClick={() => void goNeutral()}
+      >
+        Neutral
+      </button>
+    </div>
+  )
+
+  const sliderLockReason = uncalibrated
+    ? 'hand is not calibrated — use Direct motor control below'
+    : directArmed
+      ? 'direct motor mode is armed'
+      : lockReason
+
+  return (
+    <Panel title="Motor Control" toolbar={toolbar}>
+      {locked && (
+        <div style={{ fontSize: 10, color: 'var(--warn)', marginBottom: 8 }}>
+          {gate.reason} — manual control resumes when it releases
+        </div>
+      )}
+      {!locked && bare && (
+        <div style={{ fontSize: 10, color: 'var(--dim)', marginBottom: 8 }}>
+          Bare motor mode — every motor found on the bus is listed below and
+          driven directly, in its own frame. There is no hand, so there are no
+          joints to command and nothing to calibrate.
+        </div>
+      )}
+      {!locked && !bare && uncalibrated && (
+        <div style={{ fontSize: 10, color: 'var(--warn)', marginBottom: 8 }}>
+          ⚠ NOT CALIBRATED — {handInfo.calibration.hint ?? 'the hand is not calibrated'}.
+          Sliders are disabled: a joint target silently sends no motor
+          command until motor limits are recorded. Use{' '}
+          <strong>Direct motor control</strong> below to drive motors
+          directly in the meantime.
+        </div>
+      )}
+      {!locked && !bare && !uncalibrated && !torqueOn && (
+        <div style={{ fontSize: 10, color: 'var(--dimmer)', marginBottom: 8 }}>
+          enable torque to command joints — sliders re-seed from the current
+          pose on enable
+        </div>
+      )}
+      <div>
+        {!bare && joints.map((joint) => (
+          <SliderRow
+            key={joint.id}
+            joint={joint}
+            value={values[joint.id] ?? clamp(0, joint.rom[0], joint.rom[1])}
+            disabled={!torqueOn || locked || directArmed || uncalibrated}
+            lockReason={sliderLockReason}
+            showFeedback={feedback && joint.encoder_backed}
+            onSlide={onSlide}
+          />
+        ))}
+      </div>
+      <DirectMotorPanel
+        torqueOn={torqueOn}
+        locked={locked}
+        forceOpen={uncalibrated}
+        bench={bare}
+      />
+    </Panel>
+  )
+}
+
+function SliderRow({
+  joint,
+  value,
+  disabled,
+  lockReason,
+  showFeedback,
+  onSlide,
+}: {
+  joint: JointInfo
+  value: number
+  disabled: boolean
+  lockReason?: string
+  showFeedback: boolean
+  onSlide: (joint: JointInfo, value: number) => void
+}) {
+  const [lo, hi] = joint.rom
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '3px 0',
+        fontSize: 10,
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <span style={{ width: 84, textAlign: 'right', color: 'var(--text)' }}>
+        {joint.id}
+      </span>
+      <span style={{ width: 30, color: 'var(--dimmer)', fontSize: 9, textAlign: 'right' }}>
+        {lo.toFixed(0)}°
+      </span>
+      <input
+        type="range"
+        min={lo}
+        max={hi}
+        // Continuous, like the Tk slider: a 0.5° quantum turns a slow drag
+        // into a staircase the 100 Hz PI loop chases step by step.
+        step="any"
+        value={value}
+        disabled={disabled}
+        title={lockReason}
+        onChange={(e) => onSlide(joint, parseFloat(e.target.value))}
+        style={{ flex: 1, height: 3, accentColor: 'var(--accent)', cursor: 'pointer' }}
+      />
+      <span style={{ width: 34, color: 'var(--dimmer)', fontSize: 9 }}>
+        {hi > 0 ? `+${hi.toFixed(0)}` : hi.toFixed(0)}°
+      </span>
+      <span style={{ width: 52, fontWeight: 600, color: 'var(--text)', textAlign: 'right' }}>
+        →{value >= 0 ? '+' : ''}
+        {value.toFixed(1)}°
+      </span>
+      {showFeedback ? <FeedbackReadout jointId={joint.id} /> : <span style={{ width: 132 }} />}
+    </div>
+  )
+}
+
+function FeedbackReadout({ jointId }: { jointId: string }) {
+  const measRef = useRef<HTMLSpanElement>(null)
+  const trimRef = useRef<HTMLSpanElement>(null)
+  const lastUpdate = useRef(0)
+
+  useStreamFrame((frames) => {
+    const now = performance.now()
+    if (now - lastUpdate.current < 100) return // ~10 Hz like the Tkinter UI
+    lastUpdate.current = now
+    const measured = frames.joints.measured[jointId]
+    const trim = frames.joints.trim[jointId]
+    if (measRef.current && measured !== undefined) {
+      measRef.current.textContent = `meas ${measured >= 0 ? '+' : ''}${measured.toFixed(1)}°`
+    }
+    if (trimRef.current && trim !== undefined) {
+      trimRef.current.textContent = `trim ${trim >= 0 ? '+' : ''}${trim.toFixed(1)}°`
+    }
+  })
+
+  return (
+    <span style={{ width: 132, display: 'inline-flex', gap: 6, fontSize: 9 }}>
+      <span ref={measRef} style={{ color: 'var(--dim)', width: 64 }}>
+        meas --
+      </span>
+      <span ref={trimRef} style={{ color: 'var(--dimmer)', width: 60 }}>
+        trim --
+      </span>
+    </span>
+  )
+}

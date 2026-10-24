@@ -1,0 +1,2295 @@
+"""Facade the API layer talks to: validation, torque gating, command routing.
+
+Owns the supervisor and command worker. Every mutating call validates the
+current session's capabilities and raises :class:`ServiceError` with an HTTP
+status code the REST layer forwards verbatim.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import threading
+import time
+from typing import Callable, TYPE_CHECKING
+
+import numpy as np
+
+from orca_core import JointGains
+from orca_core.hardware.motor_client import MotionTimeoutError
+
+if TYPE_CHECKING:
+    from orca_core.hardware.motor_client import ServoGains, ServoProfile
+
+from pathlib import Path
+
+from orca_ui.core_source import resolve_cached as resolve_core_source
+from orca_ui.hand import zeroing
+from orca_ui.hand.commands import CommandWorker
+from orca_ui.hand.presets import BUILTIN_POSES, BUILTIN_SEQUENCES
+from orca_ui.hand.faults import classify_hw_error
+from orca_ui.hand.models import ModelEntry, available_models, describe
+from orca_ui.hand.sessions import HandSession
+from orca_ui.hand import motor_models
+from orca_ui.hand.states import ControlSource
+from orca_ui.hand.supervisor import (
+    HandBusyError,
+    HandSupervisor,
+    ModelSelectError,
+    load_config,
+    model_name_of,
+)
+from orca_ui.library import Library, LibraryError
+from orca_ui.settings import UiSettings
+
+logger = logging.getLogger(__name__)
+
+
+def _current_or_none(value) -> int | None:
+    """A config current as an int, or None while it is still the motor family's ``default``."""
+    return None if isinstance(value, str) else int(value)
+
+TACTILE_MODES = {
+    "resultant": (True, False),
+    "taxels": (False, True),
+    "combined": (True, True),
+}
+
+# Direct motor moves are clamped to this distance from the current position
+# per command — sliders nudge, they don't teleport.
+MAX_DIRECT_MOTOR_STEP_RAD = 0.8
+
+# ms between commands, which is also the rest at each recorded point. The
+# trajectory player's default and bounds, because the bench is the same
+# control under a different panel -- and because a dwell the operator cannot
+# shorten outlasts any settle cap they set, making the cap look broken.
+BENCH_DWELL_S = 0.1
+BENCH_MIN_PERIOD_S = 0.02
+BENCH_MAX_PERIOD_S = 5.0
+# Bounds a motor that cannot reach its point; it does not pace one that can.
+BENCH_ARRIVAL_TIMEOUT_S = 5.0
+# Commands per segment on the bench, matching the trajectory player: 1 moves
+# directly from one recorded point to the next and lets the servo's own
+# trajectory generator do the travelling.
+BENCH_MIN_INTERP_STEPS = 1
+BENCH_MAX_INTERP_STEPS = 200
+
+# Dynamixel firmware restart: the motor is off the bus until it finishes,
+# so a read-back any sooner just times out and looks like a failed reboot.
+MOTOR_REBOOT_SETTLE_S = 0.5
+
+# One-shot moves (apply pose, go neutral): distance-scaled glide instead of a
+# fixed duration, so a far target never starts at whip speed.
+_MOVE_SPEED_DEG_S = 90.0
+_MOVE_STEP_S = 0.02
+_MOVE_MIN_S = 0.5
+_MOVE_MAX_S = 3.0
+
+def _read_optional(hand, method: str) -> dict:
+    """One optional per-motor read, empty when the family cannot do it.
+
+    Current and temperature are extras on the bench panel: a family that does
+    not expose them must leave the rest of the snapshot intact.
+    """
+    fn = getattr(hand, method, None)
+    if fn is None:
+        return {}
+    try:
+        return {int(k): (None if v is None else float(v))
+                for k, v in (fn(as_dict=True) or {}).items()}
+    except Exception:
+        logger.debug("%s failed", method, exc_info=True)
+        return {}
+
+
+def _decode_hw_error(client, value: int | None) -> list[str] | None:
+    """Names of the latched bits, in the connected family's own vocabulary."""
+    decode = getattr(client, "decode_hardware_error", None)
+    if decode is None or value is None:
+        return None
+    return list(decode(value))
+
+
+def _bus_fence(hand):
+    """The joint loop's write fence when a loop runs, else nothing: a bus
+    transaction outside it interleaves with the loop's sync writes."""
+    from contextlib import nullcontext
+
+    fence = getattr(hand, "_loop_writes_paused", None)
+    return fence() if fence is not None else nullcontext()
+
+
+def _gain_entry(kp: float, ki: float, correction_max_deg: float) -> dict:
+    """One control channel's PI settings, as the API serializes them."""
+    return JointGains(kp=float(kp), ki=float(ki),
+                      correction_max_deg=float(correction_max_deg)).as_dict()
+
+
+def _uniform_gains(joint_gains: dict[str, dict]) -> dict | None:
+    """The one gain set every loop joint shares, or None when they differ."""
+    entries = list(joint_gains.values())
+    if not entries or any(entry != entries[0] for entry in entries[1:]):
+        return None
+    return dict(entries[0])
+
+
+class ServiceError(RuntimeError):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _encoder_sensed_joints(config) -> list[str]:
+    """Joints with an encoder measurement, wrist included.
+
+    Config-only mirror of orca_core's ``OrcaHand.encoder_backed_joints`` (the
+    two agree joint for joint), so ``hand_info`` can describe the hand before
+    a session exists.
+    """
+    from orca_core.hardware.sensing.constants import (
+        ENCODER_JOINTS_ALL,
+        JOINT_TO_ENCODER_SLOT,
+    )
+
+    configured = config.joint_encoder_joints
+    if not configured:
+        return []
+    available = [
+        joint for joint in JOINT_TO_ENCODER_SLOT
+        if joint in config.joint_to_motor_map
+    ]
+    if any(str(j).lower() == ENCODER_JOINTS_ALL for j in configured):
+        return available
+    configured_set = set(configured)
+    return [joint for joint in available if joint in configured_set]
+
+
+POSE_SOURCE_AUTO = "auto"
+POSE_SOURCE_ESTIMATE = "estimate"
+POSE_SOURCE_TARGET = "target"
+POSE_SOURCES = (POSE_SOURCE_AUTO, POSE_SOURCE_ESTIMATE, POSE_SOURCE_TARGET)
+
+
+class HandService:
+    # Bench pacing defaults, declared here so they hold on any instance
+    # rather than only one built through __init__. Both match the trajectory
+    # player: move directly from point to point, and wait for the motors
+    # rather than guess how long they need.
+    _bench_interp_steps = BENCH_MIN_INTERP_STEPS
+    _bench_max_settle_ms: "int | None" = None
+    _bench_period_s = BENCH_DWELL_S
+
+    def __init__(
+        self,
+        settings: UiSettings,
+        publish_status: Callable[[dict], None] | None = None,
+        publish_error: Callable[[str], None] | None = None,
+        publish_topic: Callable[[str, dict], None] | None = None,
+    ):
+        self.settings = settings
+        self._publish_status = publish_status or (lambda snapshot: None)
+        self._publish_error = publish_error or (lambda message: None)
+        self._publish_topic = publish_topic or (lambda topic, payload: None)
+
+        self._state_lock = threading.Lock()
+        self._targets: dict[str, float] = {}
+        self._direct_motor_mode = False
+        # Ranges found by hand on the bench, per motor, in motor radians as
+        # (low, high). A motor with one recorded is commanded only inside it.
+        self._bench_ranges: dict[int, tuple[float, float]] = {}
+        # Points recorded by hand, per motor, in motor radians. One point is a
+        # place to hold; two or more is a cycle to run between.
+        self._bench_points: dict[int, list[float]] = {}
+        # What the operator says is plugged in, per motor: a nickname and a
+        # model key. Undeclared motors are driven as if they had no current
+        # register, because a servo cannot be asked.
+        self._bench_declared: dict[int, dict] = {}
+        self._bench_playing: dict[int, int] = {}   # motor id -> next frame
+        self._bench_interp_steps = BENCH_MIN_INTERP_STEPS
+        self._bench_max_settle_ms = None
+        self._bench_period_s = BENCH_DWELL_S
+        self._bench_thread: threading.Thread | None = None
+        self._bench_stop = threading.Event()
+        self._tactile_mode = "combined"
+        self._control_source = ControlSource.MANUAL
+        self._control_owner_label = ControlSource.MANUAL.value
+        self._operation_manager = None   # attached post-construction (server.py)
+        self._sweeper = None             # mock-only dev sweeper, for estop
+        self._teleop_manager = None      # attached post-construction (server.py)
+        self._telemetry = None           # attached in server.py
+        # Gains connect() installed from config.yaml — what "reset" restores.
+        # Live gains are read back from the controller, never shadowed here.
+        self._config_gains: dict[str, dict] = {}
+
+        self.supervisor = HandSupervisor(
+            settings,
+            on_status=lambda snapshot: self._publish_status(snapshot.as_dict()),
+            on_session_ready=self._session_ready,
+            on_error=self._publish_error,
+            on_model_changed=self._model_changed,
+        )
+        self.worker = CommandWorker(
+            get_session=lambda: self.supervisor.session,
+            on_error=self._publish_error,
+        )
+        # None until the motor family is known: config.yaml may leave the
+        # limit to the family, and the connected hand's config carries it.
+        self._max_current = _current_or_none(self.supervisor.config.max_current)
+        # What config.yaml asked for — the value "default" restores to, kept
+        # separately because set_max_current overwrites the live one.
+        self._config_max_current = self._max_current
+        # Servo gains the operator has explicitly chosen, per motor. Empty
+        # until someone sets one: gains nobody picked must not be overwritten
+        # with our idea of a default.
+        # Keyed by model name, so a swapped hand never inherits another's.
+        self._servo_gains: dict[str, dict[int, "ServoGains"]] = {}
+        # Same rule for trajectory limits: only what the operator picked.
+        self._servo_profiles: dict[str, dict[int, "ServoProfile"]] = {}
+        # Which stream the 3D model follows, and whether the motor estimate is
+        # polled at all. "auto" reads the motors while they are limp and stops
+        # once torque is on, so commands are not competing with reads for the
+        # bus; the two explicit modes pin it either way.
+        self._pose_source = POSE_SOURCE_AUTO
+
+        self._library_root = (
+            Path(settings.library_dir) if settings.library_dir
+            else Path.home() / ".orca_ui" / "library"
+        )
+        self.library = Library(self._library_root, self.supervisor.model_name)
+
+    # ----- lifecycle ---------------------------------------------------------
+
+    def start(self) -> None:
+        self.supervisor.start()
+        self.worker.start()
+
+    def stop(self) -> None:
+        self._bench_stop.set()
+        self.worker.shutdown()
+        self.supervisor.shutdown()
+
+    # ----- reads -------------------------------------------------------------
+
+    @property
+    def session(self) -> HandSession | None:
+        return self.supervisor.session
+
+    def status(self) -> dict:
+        return self.supervisor.status().as_dict()
+
+    def _guided_tension_defaults(self) -> dict:
+        from orca_ui.hand.operations.guided_tension import default_currents, motor_family
+
+        family = motor_family(self)
+        return {"motor_type": family, **default_currents(family)}
+
+    def _tension_progress(self, config) -> dict | None:
+        from orca_ui.hand.operations import hand_ops
+
+        if self.settings.mock:
+            from orca_ui.hand.operations.guided_tension import SimulatedGuidedTensionOperation
+            return SimulatedGuidedTensionOperation._progress or None
+        return hand_ops.tension_progress(config, self.supervisor.hand_id)
+
+    def hand_info(self) -> dict:
+        from orca_ui.hand.operations import hand_ops
+
+        config = self.supervisor.config
+        encoder_backed = set(_encoder_sensed_joints(config))
+        session = self.session
+        # Which sensed joints can actually be decoded: raw counts become joint
+        # angles only with a per-joint anchor from the calibration sweep.
+        encoder_calibrated = None
+        if session is not None:
+            try:
+                encoder_calibrated = set(
+                    session.hand.calibration.joint_encoder_calibration_dict or {})
+            except Exception:
+                encoder_calibrated = None
+        # loop_controlled: True = the feedback loop closes on this joint;
+        # False = the loop skipped it at connect (incomplete calibration) and
+        # it runs open-loop; None = not applicable (no loop at this tier, or
+        # the joint has no encoder to close on).
+        loop_joints: set | None = None
+        loop_skipped: set = set()
+        if session is not None and session.caps.feedback_loop:
+            try:
+                loop_joints = set(session.hand.loop_joint_names or [])
+                loop_skipped = set(session.hand.loop_skipped_joints)
+            except Exception:
+                loop_joints = None
+                loop_skipped = set()
+        joints = [
+            {
+                "id": joint,
+                # Which motor drives it — the only place the UI can turn a
+                # motor id from telemetry back into something a human names.
+                "motor_id": config.joint_to_motor_map.get(joint),
+                "rom": [float(v) for v in config.joint_roms_dict[joint]],
+                "neutral": float(config.neutral_position.get(joint, 0.0)),
+                # Direction the running map assigns: True when flexing the
+                # joint turns the motor the negative way.
+                "inverted": bool(config.joint_inversion_dict.get(joint, False)),
+                "encoder_backed": joint in encoder_backed,
+                "encoder_calibrated": (
+                    None if encoder_calibrated is None or joint not in encoder_backed
+                    else joint in encoder_calibrated
+                ),
+                "loop_controlled": (
+                    True if loop_joints is not None and joint in loop_joints
+                    else False if joint in loop_skipped
+                    else None
+                ),
+            }
+            for joint in config.joint_ids
+        ]
+        info = {
+            "model_name": model_name_of(config),
+            "side": config.type,
+            "mock": self.settings.mock,
+            "joints": joints,
+            "calibration": self._calibration_state(
+                session, encoder_backed, encoder_calibrated),
+            "control": self.control_state(),
+            "core": resolve_core_source().as_dict(),
+            "reboot_supported": bool(session is not None and hasattr(
+                getattr(session.hand, "motor_client", None), "reboot_motor")),
+            # Motors that did not answer when the bus was opened, and their joints:
+            # the maintenance routines leave these out and the Setup tab greys them.
+            "absent_motors": list(getattr(getattr(session, "hand", None), "absent_motor_ids", []) or []),
+            "absent_joints": list(getattr(getattr(session, "hand", None), "absent_joints", []) or []),
+            "guided_tension": hand_ops.guided_tension_supported(),
+            "last_tension": hand_ops.last_tension(config),
+            "tension_progress": self._tension_progress(config),
+            "guided_tension_defaults": self._guided_tension_defaults(),
+        }
+        mapping = getattr(config, "finger_to_sensor_id", None)
+        if mapping:
+            info["finger_to_sensor_id"] = dict(mapping)
+        tactile_config = session.tactile_configuration() if session else None
+        if tactile_config is not None:
+            info["tactile"] = {
+                "active_sensors": list(tactile_config.active_sensors),
+                "num_taxels": dict(tactile_config.num_taxels),
+            }
+        return info
+
+    def models(self) -> dict:
+        """The model menu: what can be selected, and what is selected now.
+
+        ``selected`` is the config in force whether or not it is one of the
+        listed models — ``--config`` can name a file outside the bundle, and
+        the menu must still say what the console is currently running.
+        """
+        config = self.supervisor.config
+        status = self.supervisor.status()
+        entries = [dict(entry.as_dict(), selectable=True)
+                   for entry in available_models(self.settings.model_version)]
+        if self.settings.mock:
+            # The simulated hand's own model. Not one of orca_core's, but the
+            # supervisor can re-materialize it by name, so it stays on offer
+            # after switching the mock onto a bundled model.
+            entries.insert(0, dict(self._mock_entry().as_dict(),
+                                   selectable=True))
+        selected = model_name_of(config)
+        if not any(entry["name"] == selected for entry in entries):
+            # A --config path: what is running, so the picker has to show it,
+            # but there is no model name to resolve it back from later.
+            side, tactile, encoders = describe(config.config_path)
+            entries.append(dict(ModelEntry(
+                name=selected, version="", side=side, tactile=tactile,
+                encoders=encoders, config_path=config.config_path).as_dict(),
+                selectable=False))
+        return {
+            "models": entries,
+            "selected": selected,
+            "pinned": status.model_pinned,
+            # Detection needs a bus to ask; mock mode has none, so "let the
+            # hand decide" is not on offer there.
+            "auto_available": not self.settings.mock,
+            "config_path": config.config_path,
+        }
+
+    @staticmethod
+    def _mock_entry() -> ModelEntry:
+        from orca_ui.mock import MOCK_MODEL_CONFIG, MOCK_MODEL_NAME
+
+        side, tactile, encoders = describe(MOCK_MODEL_CONFIG)
+        return ModelEntry(name=MOCK_MODEL_NAME, version="", side=side,
+                          tactile=tactile, encoders=encoders,
+                          config_path=MOCK_MODEL_CONFIG)
+
+    def select_model(self, name: str | None,
+                     version: str | None = None) -> dict:
+        """Pin the hand config by model name, or (``None``) return the choice
+        to hardware detection. Reconnects when the model actually changes."""
+        try:
+            self.supervisor.select_model(name, version)
+        except (HandBusyError, ModelSelectError) as e:
+            raise ServiceError(str(e), status_code=409)
+        return self.models()
+
+    def boards(self) -> dict:
+        """The board menu: every board on this machine, and the pin in force.
+
+        The console's own session holds its board's ports, which probe as
+        silent — so that board is rebuilt here from what the session knows,
+        flagged ``held_by_console`` for the picker to label.
+        """
+        if self.settings.mock:
+            return {"boards": [], "selected": None, "available": False}
+        from orca_ui.hand.boards import scan_boards
+
+        status = self.supervisor.status()
+        own = {port for port in status.ports.values()
+               if port and port != "mock"}
+        entries = []
+        for board in scan_boards():
+            if own & set(board.ports):
+                continue  # rebuilt below from the live session
+            entries.append(dict(board.as_dict(), held_by_console=False))
+        if own:
+            entries.append({
+                "device": status.ports.get("motor") or sorted(own)[0],
+                "kind": "oh_board",
+                "side": status.side or None,
+                "hand_id": None,
+                "model_name": status.model,
+                "ports": sorted(own),
+                "busy": False,
+                "held_by_console": True,
+            })
+            entries.sort(key=lambda entry: entry["device"])
+        return {"boards": entries, "selected": status.board_pinned,
+                "available": True}
+
+    def select_board(self, device: str | None) -> dict:
+        """Pin the console to one board by device path, or (``None``) back
+        to first-to-answer. Reconnects when the pin actually changes."""
+        try:
+            self.supervisor.select_board(device)
+        except (HandBusyError, ModelSelectError) as e:
+            raise ServiceError(str(e), status_code=409)
+        return self.boards()
+
+    def set_hardware_version(self, version: int | None) -> dict:
+        """Pin the hardware version in config.yaml (``None`` = auto) and
+        reconnect if that changes the version in force."""
+        if self.settings.bare:
+            raise ServiceError("bare motor mode has no hand to version", status_code=409)
+        manager = self._operation_manager
+        if manager is not None and manager.active():
+            raise ServiceError("an operation is running — stop it before changing "
+                               "the hardware version", status_code=409)
+        try:
+            self.supervisor.set_hardware_version(version)
+        except HandBusyError as e:
+            raise ServiceError(str(e), status_code=409)
+        except OSError as e:
+            raise ServiceError(f"could not write config.yaml: {e}", status_code=500)
+        return self.supervisor.status().as_dict()
+
+    def disconnect(self) -> dict:
+        """Close the session and hold the ports free until Reconnect."""
+        manager = self._operation_manager
+        if manager is not None and manager.active():
+            raise ServiceError(
+                "an operation is running — stop it before disconnecting",
+                status_code=409)
+        try:
+            self.supervisor.disconnect()
+        except HandBusyError as e:
+            raise ServiceError(str(e), status_code=409)
+        self.worker.reset()
+        return self.status()
+
+    def rescan(self) -> dict:
+        """Look again for declared hardware this session did not get, without
+        dropping the session."""
+        self.supervisor.request_rescan()
+        return self.status()
+
+    def reconnect(self) -> dict:
+        """Drop the session and redial; lifts a disconnect hold."""
+        self.supervisor.request_reconnect()
+        return self.status()
+
+    def _calibration_state(self, session, encoder_backed: set,
+                           encoder_calibrated: set | None) -> dict:
+        """Motor vs joint-feedback calibration, and what recalibrating fixes.
+
+        ``hint`` is set when the motors are calibrated but encoder anchors are
+        missing, so recalibrating those joints is what closes the loop on them.
+        """
+        state: dict = {"motors": None, "joint_feedback": None,
+                       "missing_anchors": [], "hint": None}
+        if session is None or not session.caps.motors:
+            return state
+        try:
+            state["motors"] = bool(
+                session.hand.is_calibrated(use_joint_feedback=False))
+        except Exception:
+            return state
+        if not encoder_backed or encoder_calibrated is None:
+            return state
+        missing = [joint for joint in session.hand.config.joint_ids
+                   if joint in encoder_backed and joint not in encoder_calibrated]
+        state["missing_anchors"] = missing
+        state["joint_feedback"] = bool(state["motors"]) and not missing
+        if missing and state["motors"]:
+            state["hint"] = (
+                f"no encoder anchor for {', '.join(missing)} — recalibrate "
+                f"{'them' if len(missing) > 1 else 'it'} to capture the "
+                "anchor; until then the joint runs open-loop"
+            )
+        return state
+
+    def _live_gains(self) -> dict[str, dict]:
+        """Per-joint PI gains the running loop is actually using. Empty when
+        no loop runs — the source of truth is the controller, not the UI."""
+        session = self.session
+        if session is None or not session.caps.feedback_loop:
+            return {}
+        try:
+            return {joint: gains.as_dict()
+                    for joint, gains in session.hand.get_pid_gains().items()}
+        except Exception:
+            return {}
+
+    def effective_pose_source(self) -> str:
+        """Which stream the model should follow right now.
+
+        Derived from the torque flag every time it is asked rather than
+        latched on a transition, so anything that drops torque -- an e-stop, a
+        failed write, an operation ending -- reverts within one tick without
+        needing its own hook.
+        """
+        with self._state_lock:
+            mode = self._pose_source
+        if mode != POSE_SOURCE_AUTO:
+            return mode
+        try:
+            torqued = bool(self.supervisor.status().torque_enabled)
+        except Exception:
+            torqued = False
+        return POSE_SOURCE_TARGET if torqued else POSE_SOURCE_ESTIMATE
+
+    def set_pose_source(self, mode: str) -> dict:
+        """Pin the model to a stream, or hand it back to the torque state."""
+        if mode not in POSE_SOURCES:
+            raise ServiceError(
+                f"pose source must be one of {', '.join(POSE_SOURCES)}")
+        with self._state_lock:
+            self._pose_source = mode
+        self._publish_control_state()
+        return self.control_state()
+
+    def control_state(self) -> dict:
+        joint_gains = self._live_gains()
+        # Resolved outside the lock: effective_pose_source takes it too.
+        effective_source = self.effective_pose_source()
+        with self._state_lock:
+            return {
+                "torque_enabled": self.supervisor.status().torque_enabled,
+                "max_current": self._max_current,
+                # config.yaml's ceiling — what the panel's "default" button
+                # returns to (mirrors config_gains below).
+                "config_max_current": self._config_max_current,
+                # The one gain set every loop joint shares, or null when the
+                # joints are tuned individually.
+                "gains": _uniform_gains(joint_gains),
+                "joint_gains": joint_gains,
+                # What connect() installed from config.yaml — reset restores it.
+                "config_gains": {joint: dict(gains)
+                                 for joint, gains in self._config_gains.items()},
+                "tactile_mode": self._tactile_mode,
+                "control_source": self._control_source.value,
+                "control_owner": self._control_owner_label,
+                "direct_motor_mode": self._direct_motor_mode,
+                "pose_source": self._pose_source,
+                "effective_pose_source": effective_source,
+            }
+
+    def stats(self) -> dict:
+        session = self.session
+        out: dict = {"loop": None, "tactile": None, "encoder": None,
+                     "command": self.worker.stats()}
+        if session is None:
+            return out
+        try:
+            out["loop"] = session.loop_stats()
+        except Exception:
+            pass
+        tactile = session.tactile_stats()
+        if tactile is not None:
+            out["tactile"] = {
+                "frames_ok": tactile.frames_ok,
+                "frames_bad_payload_size": tactile.frames_bad_payload_size,
+                "frames_bad_payload": tactile.frames_bad_payload,
+                "last_error_code": tactile.last_error_code,
+                "stream_rearms": tactile.stream_rearms,
+            }
+        encoder = session.encoder_stats()
+        if encoder is not None:
+            out["encoder"] = {
+                "frames_ok": encoder.frames_ok,
+                "last_freshness_ms": encoder.last_freshness_ms,
+            }
+        return out
+
+    # ----- session bootstrap ---------------------------------------------------
+
+    def _model_changed(self, config) -> None:
+        """The supervisor swapped in the model the hardware reports (a hand
+        that was off at startup, or a different one plugged in since). Repoint
+        everything keyed by model; the browser refetches ``/hand/info`` off
+        the model field in the status stream."""
+        # Poses and recordings are per-model — a left hand's library must not
+        # follow the right hand that replaced it.
+        self.library = Library(self._library_root, model_name_of(config))
+        self._max_current = _current_or_none(config.max_current)
+
+    def _session_ready(self, session: HandSession) -> None:
+        # connect() builds a new controller on the config's gains, so last
+        # session's tuning is gone from the hardware — snapshot what it
+        # actually installed as the set "reset" returns to.
+        config_gains = self._live_gains()
+        with self._state_lock:
+            self._targets = {}
+            # Fresh session, fresh (unpaused) loop: a stale armed flag must
+            # not survive the reconnect and block joint targets.
+            self._direct_motor_mode = False
+            if self._max_current is None:
+                hand_config = getattr(getattr(session, "hand", None), "config", None)
+                if hand_config is not None:
+                    self._max_current = _current_or_none(hand_config.max_current)
+            self._config_gains = config_gains
+        self._publish_control_state()
+        if session.caps.motors:
+            self._apply_default_profile(session)
+        if session.caps.tactile:
+            try:
+                zeroing.apply_saved_offsets(session)
+                resultant, taxels = TACTILE_MODES[self._tactile_mode]
+                session.start_tactile_stream(resultant=resultant, taxels=taxels)
+            except Exception as e:
+                logger.exception("tactile stream autostart failed")
+                self._publish_error(f"tactile stream start failed: {e}")
+
+    def _apply_default_profile(self, session) -> None:
+        """Give every motor a trajectory profile on connect.
+
+        Without one a goal position is a step: the servo chases it at whatever
+        its position loop asks for, which is as fast as the motor goes. The
+        default is half each motor's own ceiling, so it is deliberate on a
+        wrist and on a finger joint alike rather than a figure chosen for one
+        of them.
+
+        These are RAM registers, so this is what a fresh session starts from;
+        anything written afterwards stands until the next connect. Best
+        effort -- a hand that will not take a profile is still usable.
+        """
+        client = getattr(getattr(session, "hand", None), "motor_client", None)
+        if client is None or not hasattr(client, "default_profile"):
+            return
+        try:
+            defaults = client.default_profile(client.motor_ids)
+            if not defaults:
+                return
+            client.write_servo_profile(defaults)
+        except Exception as e:
+            logger.warning("default motion profile not applied: %s", e)
+            return
+        speeds = sorted({round(p.velocity_rad_s, 2) for p in defaults.values()})
+        acc = next(iter(defaults.values())).acceleration_rad_s2
+        logger.info(
+            "applied default motion profile to %d motors: %s rad/s, "
+            "%.1f rad/s^2 (velocity is half each motor's own ceiling)",
+            len(defaults),
+            "/".join(f"{v:g}" for v in speeds), acc)
+
+    # ----- validation helpers --------------------------------------------------
+
+    def _require_session(self) -> HandSession:
+        session = self.session
+        if session is None:
+            raise ServiceError("hand not connected", status_code=503)
+        return session
+
+    def _require_motors(self) -> HandSession:
+        session = self._require_session()
+        if not session.caps.motors:
+            raise ServiceError("no motor bus in this session", status_code=409)
+        return session
+
+    def _require_feedback(self) -> HandSession:
+        session = self._require_motors()
+        if not session.caps.feedback_loop:
+            raise ServiceError("joint-feedback loop not running", status_code=409)
+        return session
+
+    def _require_tactile(self) -> HandSession:
+        session = self._require_session()
+        if not session.caps.tactile:
+            raise ServiceError("no tactile sensors in this session", status_code=409)
+        return session
+
+    def _require_torque(self) -> HandSession:
+        session = self._require_motors()
+        if not self.supervisor.status().torque_enabled:
+            raise ServiceError("torque is disabled — enable it first", status_code=409)
+        return session
+
+    def require_manual_control(self) -> None:
+        """409 unless MANUAL owns the joint-target channel. Public: the
+        operation manager gates op starts on it (an operation or teleop
+        session must not be yanked by another control session starting)."""
+        with self._state_lock:
+            source = self._control_source
+            owner = self._control_owner_label
+        if source != ControlSource.MANUAL:
+            raise ServiceError(
+                f"control is owned by {owner} — stop it first", status_code=409)
+
+    # Backwards-compatible private alias (existing call sites).
+    _require_manual_control = require_manual_control
+
+    # ----- control-source arbiter -------------------------------------------------
+
+    @property
+    def control_source(self) -> ControlSource:
+        with self._state_lock:
+            return self._control_source
+
+    def acquire_control(self, source: ControlSource,
+                        owner_label: str | None = None) -> None:
+        """Take ownership of the joint-target channel (one owner at a time)."""
+        with self._state_lock:
+            if self._control_source != ControlSource.MANUAL:
+                raise ServiceError(
+                    f"control is owned by {self._control_owner_label}",
+                    status_code=409)
+            self._control_source = source
+            self._control_owner_label = owner_label or source.value
+        # A new owner streams joint targets; a paused loop would silently
+        # ignore them for loop joints.
+        self._exit_direct_motor_mode()
+        self._publish_control_state()
+
+    def release_control(self, expected: ControlSource | None = None) -> None:
+        """Return the channel to MANUAL. With ``expected`` set, a release from
+        a stale owner (e.g. a teleop disengage racing an operation start) is a
+        logged no-op instead of stomping the new owner."""
+        with self._state_lock:
+            if expected is not None and self._control_source != expected:
+                logger.info("release_control(%s) ignored — owner is %s",
+                            expected.value, self._control_source.value)
+                return
+            self._control_source = ControlSource.MANUAL
+            self._control_owner_label = ControlSource.MANUAL.value
+        self._publish_control_state()
+
+    # ----- operations / e-stop ------------------------------------------------------
+
+    def attach_operation_manager(self, manager) -> None:
+        self._operation_manager = manager
+
+    def attach_telemetry(self, telemetry) -> None:
+        self._telemetry = telemetry
+
+    def attach_sweeper(self, sweeper) -> None:
+        self._sweeper = sweeper
+
+    def attach_teleop_manager(self, manager) -> None:
+        self._teleop_manager = manager
+
+    @property
+    def operation_manager(self):
+        return self._operation_manager
+
+    @property
+    def teleop_manager(self):
+        return getattr(self, "_teleop_manager", None)
+
+    def estop(self) -> dict:
+        """Best-effort emergency stop: never raises.
+
+        Stops the active operation (whose own cleanup handles op-owned
+        hardware, e.g. a maintenance calibrate disables torque on its own
+        hand), disables torque on the supervisor session if one exists, and
+        stops the mock sweeper. Reports what was actioned.
+        """
+        report: dict = {}
+        # Before anything else: a bench sequence is a live motion source that
+        # keeps writing on its own timer.
+        try:
+            report["playback_stopped"] = self.stop_all_playback()
+        except Exception:
+            logger.exception("estop: bench playback stop failed")
+        teleop = self.teleop_manager
+        if teleop is not None:
+            # First: teleop is the one source still streaming new motion.
+            try:
+                report["teleop_stopped"] = teleop.estop()
+            except Exception as e:
+                logger.exception("estop: teleop stop failed")
+                report["teleop_stopped"] = False
+                report["teleop_error"] = str(e)
+        manager = self._operation_manager
+        if manager is not None:
+            try:
+                report["operation_stopped"] = manager.stop(estop=True)
+            except Exception as e:
+                logger.exception("estop: operation stop failed")
+                report["operation_stopped"] = False
+                report["operation_error"] = str(e)
+        self._exit_direct_motor_mode()
+        try:
+            session = self.session
+            if session is not None and session.caps.motors:
+                session.hand.disable_torque()
+                self.supervisor.set_torque_flag(False)
+                self.worker.reset()
+                self._publish_control_state()
+                report["torque_disabled"] = True
+            else:
+                report["torque_disabled"] = False
+        except Exception as e:
+            logger.exception("estop: disable_torque failed")
+            report["torque_disabled"] = False
+            report["torque_error"] = str(e)
+        sweeper = self._sweeper
+        if sweeper is not None:
+            try:
+                sweeper.stop()
+                report["sweeper_stopped"] = True
+            except Exception:
+                logger.exception("estop: sweeper stop failed")
+                report["sweeper_stopped"] = False
+        return report
+
+    # ----- motor control ---------------------------------------------------------
+
+    def _publish_control_state(self) -> None:
+        from orca_ui.streaming import topics as T
+        self._publish_topic(T.CONTROL_STATE, self.control_state())
+
+    def enable_torque(self, *, from_operation: bool = False) -> dict:
+        """``from_operation`` skips the manual-control gate: the running
+        operation owns the control source, so a demo enabling torque for
+        itself is not a second client fighting the owner."""
+        session = self._require_motors()
+        if not from_operation:
+            self._require_manual_control()
+        if session.caps.feedback_loop:
+            # Re-anchor first so enabling torque never lurches toward a stale
+            # target (the hand may have been posed by hand while limp).
+            session.hand.rebase_loop()
+        # Goal Current lives in the motors' RAM, so a reboot or a power cycle
+        # drops it and the console's ceiling would be one it never applied.
+        # Written before torque so the ceiling is in place the moment the
+        # motors energize.
+        self._apply_current_ceiling(session)
+        self._apply_servo_gains(session)
+        self._apply_servo_profiles(session)
+        session.hand.enable_torque()
+        self.supervisor.set_torque_flag(True)
+        seed = self._current_pose(session)
+        # The hand may have been posed by hand while limp: the interpolator
+        # must ramp out of where it actually is, not where it last drove to.
+        self.worker.reset(seed)
+        with self._state_lock:
+            self._targets = dict(seed)
+        self._publish_control_state()
+        self._publish_targets()
+        return {"seed": seed}
+
+    def disable_torque(self) -> None:
+        session = self._require_motors()
+        # A running sequence would keep writing goal positions into a limp
+        # motor and then snap it to the next point when torque returned.
+        self.stop_all_playback()
+        session.hand.disable_torque()
+        self.supervisor.set_torque_flag(False)
+        self.worker.reset()
+        self._publish_control_state()
+
+    def _current_pose(self, session: HandSession) -> dict:
+        measured = session.measured_joints()
+        if measured:
+            return {j: float(v) for j, v in measured.items()}
+        estimate = session.estimate_joints()
+        return {j: float(v) for j, v in (estimate or {}).items()}
+
+    def current_pose(self) -> dict:
+        """Best current joint pose (degrees): measured, else the motor-derived
+        estimate, else the last accepted targets. Used as the teleop ramp-in
+        start pose; empty dict when nothing is known."""
+        session = self.session
+        pose = self._current_pose(session) if session is not None else {}
+        if pose:
+            return pose
+        with self._state_lock:
+            return dict(self._targets)
+
+    def set_targets(self, angles: dict[str, float],
+                    source: ControlSource = ControlSource.MANUAL) -> None:
+        """Write joint targets. Validation (joints, torque) and the
+        ``joints.target`` echo apply to every source; only the current
+        control-source owner may write."""
+        session = self._require_torque()
+        if self.settings.bare:
+            # Bare mode's joints are one-to-one stand-ins for motors, not a
+            # hand. There is no calibration behind them, so a joint target maps
+            # to whatever the mapping guesses — which on a single-turn family
+            # lands outside the reachable span and clamps against a hard stop.
+            raise ServiceError(
+                "bare motor mode has no joints to command — use direct motor "
+                "control", status_code=409)
+        with self._state_lock:
+            current = self._control_source
+            owner = self._control_owner_label
+            direct = self._direct_motor_mode
+        if direct:
+            raise ServiceError(
+                "direct motor mode is armed — joint targets are suspended "
+                "(loop writes paused); disarm it first", status_code=409)
+        if source != current:
+            raise ServiceError(
+                f"joint targets are owned by {owner}", status_code=409)
+        known = set(session.hand.config.joint_ids)
+        unknown = set(angles) - known
+        if unknown:
+            raise ServiceError(f"unknown joints: {sorted(unknown)}")
+        # Clamped here, not left to orca_core: the echo, the interpolator and
+        # adherence tracking must all see the value the hand is really sent.
+        roms = session.hand.config.joint_roms_dict
+        clean = {}
+        for joint, value in angles.items():
+            value = float(value)
+            rom = roms.get(joint)
+            if rom is not None:
+                value = min(max(value, float(rom[0])), float(rom[1]))
+            clean[joint] = value
+        self.worker.submit_targets(clean)
+        with self._state_lock:
+            self._targets.update(clean)
+        self._publish_targets()
+
+    def _publish_targets(self) -> None:
+        from orca_ui.streaming import topics as T
+        with self._state_lock:
+            targets = dict(self._targets)
+        if targets:
+            self._publish_topic(T.JOINTS_TARGET, {"angles": targets})
+
+    def go_neutral(self) -> None:
+        session = self._require_torque()
+        self._require_manual_control()
+        neutral = {j: float(v)
+                   for j, v in session.hand.config.neutral_position.items()}
+        num_steps = self._move_steps(session, neutral)
+        self.worker.submit_op(
+            lambda: session.hand.set_neutral_position(
+                num_steps=num_steps, step_size=_MOVE_STEP_S))
+        with self._state_lock:
+            self._targets.update(neutral)
+        self._publish_targets()
+
+    def _move_steps(self, session, target: dict[str, float]) -> int:
+        """Interpolation step count for a one-shot move, scaled to the
+        distance so a far pose glides instead of snapping: the fixed-duration
+        default turns a 90° travel into a tendon-whipping start."""
+        try:
+            current = session.sampled_joints() or {}
+        except Exception:
+            current = {}
+        jump = max((abs(v - current[j]) for j, v in target.items()
+                    if j in current), default=0.0)
+        duration = min(_MOVE_MAX_S,
+                       max(_MOVE_MIN_S, jump / _MOVE_SPEED_DEG_S))
+        return max(1, round(duration / _MOVE_STEP_S))
+
+    # ----- feedback-loop gains -------------------------------------------------
+    #
+    # The loop's controller carries one PI channel per loop-controlled joint,
+    # each with its own gains (config.yaml's ``joint_control_gains`` seeds
+    # them at connect). Joints the loop doesn't close on — connect-time skips
+    # and joints without an encoder — have no channel at all, so no gain
+    # applies to them. Live gains always come from the controller.
+
+    def _loop_joints(self, session: HandSession) -> list[str]:
+        """Joints the loop closes on, in the controller's channel order."""
+        names = session.hand.loop_joint_names
+        if not names:
+            raise ServiceError("joint loop controls no joints",
+                               status_code=409)
+        return list(names)
+
+    def _resolve_loop_joints(self, session: HandSession,
+                             joints: list[str]) -> list[str]:
+        names = self._loop_joints(session)
+        unknown = sorted(set(joints) - set(names))
+        if unknown:
+            raise ServiceError(
+                f"joints not under the feedback loop (gains do not apply): "
+                f"{unknown}; tunable joints: {names}")
+        return list(dict.fromkeys(joints))
+
+    def set_gains(self, kp: float, ki: float, correction_max_deg: float,
+                  joints: list[str] | None = None) -> None:
+        """Retune the outer PI loop.
+
+        ``joints=None`` writes one gain set to every loop joint; a joint list
+        writes exactly those joints and leaves the rest as they are.
+        """
+        session = self._require_feedback()
+        entry = _gain_entry(kp, ki, correction_max_deg)
+        if joints is None:
+            # Scalars: orca_core broadcasts them across every channel.
+            session.hand.set_pid_gains(
+                Kp=entry["kp"], Ki=entry["ki"],
+                correction_max_deg=entry["correction_max_deg"])
+        else:
+            targets = self._resolve_loop_joints(session, joints)
+
+            def named(key: str) -> dict[str, float]:
+                return {joint: entry[key] for joint in targets}
+
+            session.hand.set_pid_gains(
+                Kp=named("kp"), Ki=named("ki"),
+                correction_max_deg=named("correction_max_deg"))
+        self._publish_control_state()
+
+    def reset_gains(self, joints: list[str] | None = None) -> None:
+        """Restore the config gains connect() installed — for every loop joint,
+        or just ``joints``."""
+        session = self._require_feedback()
+        names = (self._loop_joints(session) if joints is None
+                 else self._resolve_loop_joints(session, joints))
+        with self._state_lock:
+            config_gains = dict(self._config_gains)
+        restore = {joint: config_gains[joint] for joint in names
+                   if joint in config_gains}
+        if not restore:
+            raise ServiceError("no config gains recorded for this session",
+                               status_code=409)
+
+        def named(key: str) -> dict[str, float]:
+            return {joint: gains[key] for joint, gains in restore.items()}
+
+        session.hand.set_pid_gains(
+            Kp=named("kp"), Ki=named("ki"),
+            correction_max_deg=named("correction_max_deg"))
+        self._publish_control_state()
+
+    def gains_state(self) -> dict:
+        """Live gains for every loop-controlled joint, the config gains reset
+        returns to, and the joints that run open-loop (no PI channel)."""
+        session = self._require_feedback()
+        names = self._loop_joints(session)
+        live = self._live_gains()
+        with self._state_lock:
+            config_gains = dict(self._config_gains)
+        controlled = set(names)
+        return {
+            "joints": [
+                {
+                    "joint": joint,
+                    "modified": (joint in config_gains
+                                 and live.get(joint) != config_gains[joint]),
+                    **live.get(joint, {}),
+                }
+                for joint in names
+            ],
+            "config_gains": config_gains,
+            "open_loop_joints": [joint for joint in session.hand.config.joint_ids
+                                 if joint not in controlled],
+        }
+
+    @property
+    def max_current(self) -> int | None:
+        """The ceiling the console is set to, or None before a session has
+        resolved the motor family's own default."""
+        with self._state_lock:
+            return self._max_current
+
+    def _apply_current_ceiling(self, session) -> None:
+        """Push the live ceiling to the motors.
+
+        The console never calls ``init_joints``, which is what writes Goal
+        Current on the scripted paths, so without this the motors keep
+        whatever they powered up with — their Current Limit — while the panel
+        reports the configured value.
+        """
+        with self._state_lock:
+            ma = self._max_current
+        # None while config.yaml leaves the limit to the motor family: the
+        # hand already powered up on the family's own value, so there is
+        # nothing of ours to push.
+        if ma is None:
+            return
+        try:
+            with _bus_fence(session.hand):
+                if self.settings.bare:
+                    self._apply_declared_ceiling(session, ma)
+                else:
+                    session.hand.set_max_current(ma)
+        except Exception:
+            logger.warning("could not apply the %d mA current ceiling", ma,
+                           exc_info=True)
+
+    def _apply_declared_ceiling(self, session, ma: float) -> None:
+        """Write Goal Current only to motors declared to have the register.
+
+        An undeclared motor is left alone. A servo answers a read of Goal
+        Current with a plain zero whether or not the register exists, so
+        nothing on the bus can tell us it is safe to write — only the operator
+        can, and until they do the motor keeps its power-up ceiling.
+        """
+        client = getattr(session.hand, "motor_client", None)
+        write = getattr(client, "write_desired_current", None)
+        if write is None:
+            return
+        targets, skipped = [], []
+        for motor_id in session.hand.config.motor_ids:
+            model = motor_models.get(
+                self._bench_declared.get(int(motor_id), {}).get("model"))
+            if not model.has_current_control:
+                skipped.append(int(motor_id))
+                continue
+            # The datasheet's continuous rating, not its stall figure: a
+            # bench holds a motor against a load, which is exactly where
+            # stall current cooks it.
+            ceiling = model.ceiling_ma
+            targets.append((int(motor_id),
+                            min(ma, ceiling) if ceiling else ma))
+        if skipped:
+            logger.info("no current ceiling written to motors %s — not "
+                        "declared as having a current register",
+                        ", ".join(str(m) for m in skipped))
+        if targets:
+            write([m for m, _ in targets],
+                  np.asarray([v for _, v in targets], dtype=float))
+
+    def _apply_servo_gains(self, session) -> None:
+        """Re-apply the operator's chosen gains.
+
+        Gains are RAM registers, so a power cycle clears them and the panel
+        would otherwise report values the motors no longer hold. Untouched
+        motors are left alone.
+        """
+        with self._state_lock:
+            gains = dict(self._servo_gains.get(self.supervisor.model_name, {}))
+        if not gains:
+            return
+        try:
+            with _bus_fence(session.hand):
+                session.hand.set_servo_gains(gains)
+        except Exception:
+            logger.warning("could not apply servo gains", exc_info=True)
+
+    def _apply_servo_profiles(self, session) -> None:
+        """Re-apply the operator's chosen trajectory limits (RAM, like gains)."""
+        with self._state_lock:
+            profiles = dict(self._servo_profiles.get(self.supervisor.model_name, {}))
+        if not profiles:
+            return
+        try:
+            with _bus_fence(session.hand):
+                session.hand.set_servo_profile(profiles)
+        except Exception:
+            logger.warning("could not apply servo profiles", exc_info=True)
+
+    def read_servo_profile(self) -> dict:
+        """Read the trajectory limits off the motors, in SI units."""
+        session = self._require_motors()
+        try:
+            with _bus_fence(session.hand):
+                profiles = session.hand.get_servo_profile()
+        except Exception as e:
+            raise ServiceError(f"could not read servo profile: {e}",
+                               status_code=502)
+        return {
+            str(motor_id): (None if entry is None else {
+                "velocity_rad_s": entry.velocity_rad_s,
+                "acceleration_rad_s2": entry.acceleration_rad_s2,
+            })
+            for motor_id, entry in profiles.items()
+        }
+
+    def set_servo_profile(self, motor_id: int, fields: dict) -> dict:
+        """Write trajectory limits on one motor and read the result back."""
+        from orca_core.hardware.motor_client import ServoProfile
+
+        session = self._require_motors()
+        motor_id = int(motor_id)
+        if motor_id not in set(session.hand.config.motor_ids):
+            raise ServiceError(f"unknown motor {motor_id}", status_code=404)
+        named = {k: v for k, v in fields.items() if v is not None}
+        if not named:
+            raise ServiceError("no profile values given")
+        try:
+            with _bus_fence(session.hand):
+                session.hand.set_servo_profile({motor_id: ServoProfile(**named)})
+        except Exception as e:
+            raise ServiceError(f"profile write failed: {e}", status_code=502)
+        result = self.read_servo_profile()
+        if result.get(str(motor_id)) is None:
+            raise ServiceError(
+                "this motor family does not expose servo trajectory limits",
+                status_code=501)
+        with self._state_lock:
+            store = self._servo_profiles.setdefault(self.supervisor.model_name, {})
+            previous = store.get(motor_id)
+            merged = named if previous is None else {
+                **{k: v for k, v in previous.__dict__.items() if v is not None},
+                **named,
+            }
+            store[motor_id] = ServoProfile(**merged)
+        return result
+
+    def read_servo_gains(self) -> dict:
+        """Read the gains off the motors — hardware truth, not what was typed.
+
+        One bus transaction, so this is on-demand rather than on a timer.
+        """
+        session = self._require_motors()
+        try:
+            with _bus_fence(session.hand):
+                gains = session.hand.get_servo_gains()
+        except Exception as e:
+            raise ServiceError(f"could not read servo gains: {e}",
+                               status_code=502)
+        return {
+            str(motor_id): (None if entry is None else {
+                "kp": entry.kp, "ki": entry.ki, "kd": entry.kd,
+                "ff_1st": entry.ff_1st, "ff_2nd": entry.ff_2nd,
+            })
+            for motor_id, entry in gains.items()
+        }
+
+    def servo_gain_max(self) -> "int | None":
+        """Largest value this family's gain registers hold.
+
+        A register width, not a tuning limit. The browser must not assume one
+        family's: the X-series holds gains in two bytes, an HLS servo in one.
+        """
+        session = self.session
+        client = getattr(getattr(session, "hand", None), "motor_client", None)
+        return getattr(type(client), "servo_gain_max", None)
+
+    def servo_limits(self) -> dict:
+        """What each tunable accepts, and the ceiling that actually binds.
+
+        The two are not the same number and the gap is enormous: a speed
+        register holds values a hundred times faster than the motor turns,
+        and accepts them without complaint, so a panel that captions a box
+        with the register width invites an operator to ask for a speed that
+        silently does nothing. The per-motor ceiling is the useful bound, and
+        it varies within one chain.
+        """
+        session = self.session
+        client = getattr(getattr(session, "hand", None), "motor_client", None)
+        cls = type(client) if client is not None else None
+        if cls is None or not hasattr(cls, "servo_limits"):
+            return {}
+        out = {"tunables": cls.servo_limits(), "per_motor": {}}
+        try:
+            reachable = client.read_profile_limits(client.motor_ids)
+        except Exception:
+            logger.debug("profile limits unavailable", exc_info=True)
+            return out
+        out["per_motor"] = {
+            str(mid): {"velocity_rad_s": round(p.velocity_rad_s, 3),
+                       "acceleration_rad_s2": round(p.acceleration_rad_s2, 1)}
+            for mid, p in reachable.items()
+        }
+        return out
+
+    def set_servo_gains(self, motor_id: int, fields: dict) -> dict:
+        """Write the named gain fields on one motor and read the result back."""
+        from orca_core.hardware.motor_client import ServoGains
+
+        session = self._require_motors()
+        motor_id = int(motor_id)
+        if motor_id not in set(session.hand.config.motor_ids):
+            raise ServiceError(f"unknown motor {motor_id}", status_code=404)
+        named = {k: v for k, v in fields.items() if v is not None}
+        if not named:
+            raise ServiceError("no gain values given")
+        entry = ServoGains(**named)
+        try:
+            with _bus_fence(session.hand):
+                session.hand.set_servo_gains({motor_id: entry})
+        except Exception as e:
+            raise ServiceError(f"gain write failed: {e}", status_code=502)
+        result = self.read_servo_gains()
+        if result.get(str(motor_id)) is None:
+            raise ServiceError("this motor family does not expose servo gains",
+                               status_code=501)
+        with self._state_lock:
+            store = self._servo_gains.setdefault(self.supervisor.model_name, {})
+            previous = store.get(motor_id)
+            merged = named if previous is None else {
+                **{k: v for k, v in previous.__dict__.items() if v is not None},
+                **named,
+            }
+            store[motor_id] = ServoGains(**merged)
+        return result
+
+    def set_max_current(self, ma: int) -> None:
+        import dataclasses
+
+        session = self._require_motors()
+        ma = int(ma)
+        # Calibration drives onto the hardstops at the ceiling set here, for
+        # every joint: the packaged configs ship the two values equal, so a
+        # separate calibration current only ever constrained this control.
+        hand_config = session.hand.config
+        fields = {"max_current": ma, "calibration_current": ma}
+        if hand_config.wrist_calibration_current == hand_config.calibration_current:
+            fields["wrist_calibration_current"] = ma
+        groups = dict(hand_config.calibration_current_v21_dict)
+        if groups.pop(str(hand_config.motor_type), None) is not None:
+            fields["calibration_current_v21_dict"] = groups
+        # Validate before the hardware write: a rejected value must not leave
+        # the motors on it with the config and our snapshot on the old one.
+        try:
+            config = dataclasses.replace(hand_config, **fields)
+        except Exception as e:
+            raise ServiceError(f"hand config rejected {ma} mA: {e}")
+        with _bus_fence(session.hand):
+            # Deliberately not clamped to the declared model's rating. The
+            # declaration decides what a motor is given on connect; a value
+            # typed here is the operator overriding that on purpose, which is
+            # the point of a bench.
+            session.hand.set_max_current(ma)
+        session.hand.config = config
+        with self._state_lock:
+            self._max_current = ma
+        self._publish_control_state()
+
+    def rebase(self) -> None:
+        session = self._require_feedback()
+        session.hand.rebase_loop()
+        self.worker.reset()
+
+    # ----- direct motor control (advanced diagnostics) -----------------------
+    #
+    # Raw motor-space access for bring-up/diagnosis (e.g. a single motor that
+    # refuses to turn). Deliberately friction-ful: an explicit arm step that
+    # pauses the feedback loop's writes, per-move step clamp, and joint
+    # targets 409 while armed.
+
+    def motor_snapshot(self) -> dict:
+        """Per-motor position + latched hardware-error state.
+
+        Reads happen under the loop-write fence (when a loop runs) so the
+        per-motor status round-trips don't interleave with the loop's writes on
+        the shared bus.
+        """
+        session = self._require_motors()
+        hand = session.hand
+        client = getattr(hand, "motor_client", None)
+        with _bus_fence(hand):
+            positions = hand.get_motor_pos(as_dict=True)
+            # A bench load test reads the stall off the current, not the
+            # position: the target is missed either way, and only the current
+            # says whether the motor is pushing or has given up.
+            currents = _read_optional(hand, "get_motor_current")
+            temps = _read_optional(hand, "get_motor_temp")
+            read_error = getattr(client, "read_hardware_error", None)
+            errors: dict = {}
+            for mid in hand.config.motor_ids:
+                err = None
+                if read_error is not None:
+                    try:
+                        err = read_error(mid)
+                    except Exception:
+                        err = None
+                errors[mid] = err
+        motor_to_joint = hand.config.motor_to_joint_dict
+        with self._state_lock:
+            direct = self._direct_motor_mode
+        span = getattr(type(client), "position_range_rad", None)
+        return {
+            "direct_mode": direct,
+            # A bench moves a loose motor across its whole travel in one go;
+            # the step cap exists to stop a slider yanking a tendon.
+            "max_step_rad": (None if self.settings.bare
+                             else MAX_DIRECT_MOTOR_STEP_RAD),
+            # The travel the family can actually reach, so a dial can be drawn
+            # over real angles instead of a guessed range.
+            "span_rad": list(span) if span else None,
+            "motors": [
+                {
+                    "id": int(mid),
+                    "joint": str(motor_to_joint.get(mid, "")),
+                    "position": float(positions[mid]),
+                    "range_rad": (list(self._bench_ranges[int(mid)])
+                                  if int(mid) in self._bench_ranges else None),
+                    **(self._declaration(session, int(mid))
+                       if self.settings.bare else {}),
+                    "points": list(self._bench_points.get(int(mid), [])) or None,
+                    "playing": int(mid) in self._bench_playing,
+                    "current_ma": currents.get(mid),
+                    "temp_c": temps.get(mid),
+                    "hw_error": errors[mid],
+                    "hw_error_flags": _decode_hw_error(client, errors[mid]),
+                }
+                for mid in hand.config.motor_ids
+            ],
+        }
+
+    def reboot_motor(self, motor_id: int) -> dict:
+        """Clear a motor's latched hardware error with a Protocol 2.0 reboot.
+
+        The only way back from a latched Hardware Error Status short of
+        power-cycling the hand: the motor keeps answering the bus and keeps
+        acknowledging torque enable, but its power stage stays inhibited
+        until it is rebooted. Comes back with torque off, and torque is not
+        re-enabled here — if the fault is a supply or wiring one it latches
+        again on the next command, and that should happen under a deliberate
+        torque enable rather than silently inside a recovery call.
+        """
+        session = self._require_motors()
+        self._require_manual_control()
+        if self.supervisor.status().torque_enabled:
+            # A rebooted motor comes back limp while the rest stay torqued,
+            # and the streams keep writing to it while it restarts.
+            raise ServiceError("disable torque before rebooting a motor",
+                               status_code=409)
+        hand = session.hand
+        motor_id = int(motor_id)
+        if motor_id not in set(hand.config.motor_ids):
+            raise ServiceError(f"unknown motor {motor_id}", status_code=404)
+
+        client = getattr(hand, "motor_client", None)
+        reboot = getattr(client, "reboot_motor", None)
+        if reboot is None:
+            raise ServiceError("this motor family has no reboot instruction",
+                               status_code=501)
+
+        with _bus_fence(hand):
+            try:
+                reboot(motor_id)
+            except Exception as e:
+                raise ServiceError(f"reboot failed: {e}", status_code=502)
+            # The motor is off the bus for a moment while its firmware
+            # restarts; read back only after it can answer again.
+            time.sleep(MOTOR_REBOOT_SETTLE_S)
+            read_error = getattr(client, "read_hardware_error", None)
+            error = None
+            if read_error is not None:
+                try:
+                    error = read_error(motor_id)
+                except Exception:
+                    error = None
+
+        flags = _decode_hw_error(client, error)
+        joint = hand.config.motor_to_joint_dict.get(motor_id)
+        info = classify_hw_error(flags, motor=motor_id, joint=joint)
+        # Drop the cached latch so the dashboard updates on this reply rather
+        # than waiting out the next sweep.
+        telemetry = getattr(self, "_telemetry", None)
+        forget = getattr(telemetry, "forget_hw_error", None)
+        if forget is not None:
+            forget(motor_id)
+        return {
+            "motor": motor_id,
+            "joint": joint,
+            # None when the motor did not answer the read-back: unknown is
+            # not the same as clear.
+            "cleared": None if error is None else not flags,
+            "read_back": error is not None,
+            "hw_error": error,
+            "hw_error_flags": flags,
+            "info": info,
+        }
+
+    def set_direct_motor_mode(self, enabled: bool, *,
+                              from_operation: bool = False) -> dict:
+        """``from_operation`` skips the manual-control gate: a motor-space
+        replay owns the control source and arms/disarms around its run."""
+        session = self._require_motors()
+        if not from_operation:
+            self._require_manual_control()
+        if not enabled:
+            self._exit_direct_motor_mode()
+            return {"direct_mode": False}
+        loop = getattr(session.hand, "_loop", None)
+        with self._state_lock:
+            already = self._direct_motor_mode
+            self._direct_motor_mode = True
+        if not already and loop is not None:
+            # The loop would immediately overwrite raw motor writes for its
+            # joints; fence it out for the whole armed window.
+            loop.pause_writes()
+        self._publish_control_state()
+        return {"direct_mode": True}
+
+    def _exit_direct_motor_mode(self) -> None:
+        """Disarm + resume loop writes. Safe to call from any state; never
+        raises (used by estop and control-source handover)."""
+        with self._state_lock:
+            was = self._direct_motor_mode
+            self._direct_motor_mode = False
+        if not was:
+            return
+        session = self.session
+        loop = getattr(session.hand, "_loop", None) if session else None
+        if loop is not None:
+            try:
+                loop.resume_writes()
+            except Exception:
+                logger.exception("resume_writes failed leaving direct motor mode")
+        self.worker.reset()
+        self._publish_control_state()
+
+    def set_motor_torque(self, motor_id: int, enabled: bool) -> dict:
+        """Torque one motor on or off, leaving the rest of the chain alone.
+
+        Range finding needs the motor limp enough to turn by hand while its
+        neighbours stay as they are, which the whole-hand torque control
+        cannot express.
+        """
+        session = self._require_motors()
+        self._require_manual_control()
+        if not self.settings.bare:
+            raise ServiceError(
+                "per-motor torque is a bare-mode bench control", status_code=409)
+        motor_id = int(motor_id)
+        if motor_id not in session.hand.config.motor_ids:
+            raise ServiceError(f"unknown motor id {motor_id}")
+        hand = session.hand
+        if enabled:
+            hand.enable_torque([motor_id])
+        else:
+            hand.disable_torque([motor_id])
+        return {"id": motor_id, "torque_enabled": bool(enabled)}
+
+    def set_motor_range(self, motor_id: int,
+                        low: float | None, high: float | None) -> dict:
+        """Record (or clear, with None) the travel found by hand for one motor."""
+        session = self._require_motors()
+        if not self.settings.bare:
+            raise ServiceError(
+                "motor ranges are a bare-mode bench control", status_code=409)
+        motor_id = int(motor_id)
+        if motor_id not in session.hand.config.motor_ids:
+            raise ServiceError(f"unknown motor id {motor_id}")
+        if low is None or high is None:
+            self._bench_ranges.pop(motor_id, None)
+            return {"id": motor_id, "range_rad": None}
+        low, high = float(low), float(high)
+        if not (math.isfinite(low) and math.isfinite(high)):
+            raise ServiceError("range limits must be finite")
+        if low > high:
+            low, high = high, low
+        if high - low < 1e-3:
+            raise ServiceError(
+                "the two limits are the same position — move the motor "
+                "between setting them")
+        span = getattr(type(getattr(session.hand, "motor_client", None)),
+                       "position_range_rad", None)
+        if span is not None and (low < span[0] - 1e-6 or high > span[1] + 1e-6):
+            raise ServiceError(
+                f"range {low:.3f}..{high:.3f} rad is outside the motor's "
+                f"travel ({span[0]:.3f} to {span[1]:.3f} rad)")
+        self._bench_ranges[motor_id] = (low, high)
+        return {"id": motor_id, "range_rad": [low, high]}
+
+    # ----- configuration registers (bare bench only) --------------------------
+
+    def _config_client(self):
+        """The motor client, with the editable-register surface it declares."""
+        session = self._require_motors()
+        if not self.settings.bare:
+            raise ServiceError(
+                "editing configuration registers is a bare-bench control: on "
+                "an assembled hand an id change orphans a joint from its "
+                "config", status_code=409)
+        client = getattr(session.hand, "motor_client", None)
+        if client is None or not getattr(client, "config_registers", ()):
+            raise ServiceError(
+                "this motor family declares no editable registers",
+                status_code=409)
+        return session, client
+
+    def motor_config_schema(self) -> dict:
+        """What this family lets an operator change, for the browser to render.
+
+        Rendered from the declaration rather than a list in the front-end, so
+        a family that lacks a setting shows no row for it and one that gains
+        one needs no browser change.
+        """
+        _, client = self._config_client()
+        low, high = self.reachable_id_range()
+        return {
+            "motor_type": getattr(type(client), "motor_type", None),
+            "id_range": [low, high],
+            "registers": [
+                {
+                    "key": r.key,
+                    "label": r.label,
+                    "address": r.address,
+                    "size": r.size,
+                    "eeprom": r.eeprom,
+                    "unit": r.unit,
+                    "min": r.minimum,
+                    "max": r.maximum,
+                    "choices": ({str(k): v for k, v in r.choices.items()}
+                                if r.choices else None),
+                    "reidentifies": r.reidentifies,
+                    "note": r.note,
+                }
+                for r in client.config_registers
+            ],
+        }
+
+    def read_motor_config(self, motor_id: int) -> dict:
+        """Every declared register for one motor. None where it did not answer."""
+        _, client = self._config_client()
+        motor_id = int(motor_id)
+        values: dict[str, "int | None"] = {}
+        for entry in client.config_registers:
+            try:
+                values[entry.key] = client.read_config_register(motor_id, entry.key)
+            except Exception:
+                logger.debug("config read failed: motor %s %s",
+                             motor_id, entry.key, exc_info=True)
+                values[entry.key] = None
+        return {"id": motor_id, "values": values}
+
+    def reachable_id_range(self) -> "tuple[int, int]":
+        """Ids a bench re-scan will find after a change.
+
+        The id register allows far more than this, but offering an id the
+        startup scan cannot reach means a write that succeeds and a motor that
+        comes back missing after the next restart -- it is answering, nothing
+        is looking for it there. Observed exactly that: a motor moved to 30
+        survived the change and was gone on relaunch.
+
+        So the settable ids are the scanned ids. Widening one widens the other.
+        """
+        from orca_ui.hand import bare as bare_mode
+
+        return bare_mode.DEFAULT_ID_RANGE
+
+    def taken_motor_ids(self) -> "list[int]":
+        """Ids already answering on this bus, which a re-id may not collide with.
+
+        Two motors on one id is not a degraded bus, it is a broken one: one of
+        them silently takes the other's commands.
+        """
+        session = self._require_motors()
+        return sorted(int(m) for m in session.hand.config.motor_ids)
+
+    def write_motor_config(self, motor_id: int, key: str, value: int) -> dict:
+        """Write one register, read it back, and say what actually stuck.
+
+        An id change moves the motor, so the bench is re-scanned and the
+        session rebuilt around what is there now -- the browser keeps its
+        connection and the motor reappears under its new id.
+        """
+        session, client = self._config_client()
+        motor_id, value = int(motor_id), int(value)
+        if key == "id" and value != motor_id and value in self.taken_motor_ids():
+            raise ServiceError(
+                f"id {value} is already on this bus; two motors on one id "
+                "means one silently takes the other's commands")
+        if self.supervisor.status().torque_enabled:
+            raise ServiceError(
+                "these are EEPROM registers and need torque off",
+                status_code=409)
+        try:
+            actual = client.write_config_register(motor_id, key, value)
+        except ValueError as e:
+            raise ServiceError(str(e))
+        except Exception as e:
+            raise ServiceError(f"motor {motor_id}: {key} write failed: {e}")
+
+        result = {"id": motor_id, "key": key, "requested": value,
+                  "actual": actual, "applied": actual == value,
+                  "rescanned": False}
+        if key == "id" and actual == value:
+            result["id"] = value
+            result["rescanned"] = self._follow_motor_id(motor_id, value)
+        return result
+
+    def bus_baud_rates(self) -> dict:
+        """Rates this bus can be moved to, and the one it is on.
+
+        The family's map intersected with what the transport can carry. A
+        connector board only retunes its wire for certain rates and ignores the
+        rest, so offering the family's map raw offers rates that strand every
+        motor on the bus: they move, the host cannot follow, and nothing on this
+        port can reach them again.
+        """
+        session, client = self._config_client()
+        family = sorted(type(client).baud_rate_map)
+        allowed = self._transport_rates(client)
+        if allowed is self.UNKNOWN_TRANSPORT:
+            # Nothing offered rather than everything. A core that cannot say
+            # what the port carries cannot rule out the rates that strand a
+            # bus, and the browser names the version that can.
+            rates = []
+        elif allowed is None:
+            rates = family
+        else:
+            rates = [r for r in family if r in allowed]
+        return {
+            "current": int(getattr(client, "baudrate", 0)) or None,
+            "rates": rates,
+        }
+
+    UNKNOWN_TRANSPORT = object()
+    """The core could not be asked what the transport carries.
+
+    Distinct from ``None``, which is a core answering "no limit of my own". The
+    difference decides whether offering the family's whole map is safe: a rate
+    the transport will not follow strands every motor on the bus beyond the
+    host's reach, so not knowing is not the same as knowing there is no limit.
+    """
+
+    @classmethod
+    def _transport_rates(cls, client):
+        """What the transport can carry, ``None`` for no limit, or
+        :attr:`UNKNOWN_TRANSPORT` when the question could not be put."""
+        probe = getattr(client, "transport_baud_rates", None)
+        if probe is None:
+            return cls.UNKNOWN_TRANSPORT
+        try:
+            return probe()
+        except Exception:
+            logger.exception("could not establish what the transport carries")
+            return cls.UNKNOWN_TRANSPORT
+
+    def set_bus_baud(self, baud_rate: int) -> dict:
+        """Move every motor on the bus to a new rate, then re-scan at it.
+
+        Bus-wide by necessity, not by choice. A motor switches rate the
+        instant the write lands, and the port can only be open at one rate --
+        so changing one motor orphans it from the rest. Changing all of them
+        and following the bus is the only version of this that leaves a
+        working bench.
+        """
+        session, client = self._config_client()
+        baud_rate = int(baud_rate)
+        index = type(client).baud_rate_map.get(baud_rate)
+        if index is None:
+            raise ServiceError(
+                f"{baud_rate} is not a rate this family supports "
+                f"({sorted(type(client).baud_rate_map)})")
+        # Checked here and not only in the browser: this is the request that
+        # strands a bus, and it is reachable from anything that can POST.
+        allowed = self._transport_rates(client)
+        if allowed is self.UNKNOWN_TRANSPORT:
+            raise ServiceError(
+                "this orca_core cannot report which rates the port's transport "
+                "carries, and a rate it will not follow strands every motor on "
+                "the bus. Update orca_core to 0.5.3 or newer and reconnect",
+                status_code=409)
+        if allowed is not None and baud_rate not in allowed:
+            raise ServiceError(
+                f"the transport on this port cannot carry {baud_rate} baud, so "
+                f"every motor moved there would be unreachable. It carries "
+                f"{sorted(allowed)}", status_code=409)
+        if self.supervisor.status().torque_enabled:
+            raise ServiceError(
+                "baud lives in EEPROM and needs torque off", status_code=409)
+
+        motor_ids = sorted(int(m) for m in session.hand.config.motor_ids)
+        # Every motor is told at the rate the bus is still running at, and
+        # none of them is followed in between. A per-motor helper that
+        # reopened the port would move the host after the first write and
+        # leave the other sixteen unreachable at the old rate -- the exact
+        # orphaning this control exists to avoid.
+        changed, failed = [], []
+        for motor_id in motor_ids:
+            try:
+                client.write_config_register(motor_id, "baud_rate", index)
+                changed.append(motor_id)
+            except Exception:
+                logger.debug("baud write failed: motor %s", motor_id,
+                             exc_info=True)
+                failed.append(motor_id)
+
+        # Now the host follows. A motor that refused the write is still at the
+        # old rate and will not answer; the reconnect is what reveals which.
+        rescanned = False
+        try:
+            from orca_ui.hand import bare as bare_mode
+
+            config = load_config(bare_mode.config_with_baud_changed(
+                self.supervisor.config.config_path, baud_rate))
+            self.supervisor.install_bare_config_object(config)
+            rescanned = True
+        except Exception:
+            logger.exception("could not follow the bus to %d baud", baud_rate)
+
+        return {"requested": baud_rate, "changed": changed, "failed": failed,
+                "rescanned": rescanned}
+
+    def _follow_motor_id(self, old_id: int, new_id: int) -> bool:
+        """Point the session at the motor's new id and reconnect.
+
+        No bus scan. The write was already confirmed by reading the register
+        back at the new id, so where the motor is, is known -- rediscovering
+        it would mean sweeping every id the register allows, a bus timeout
+        each, and taking the bench down for ten seconds to learn nothing new.
+
+        Only the session is rebuilt, which the client needs because its motor
+        ids are fixed when it is constructed.
+        """
+        from orca_ui.hand import bare as bare_mode
+
+        try:
+            config_path = bare_mode.config_with_motor_id_changed(
+                self.supervisor.config.config_path, int(old_id), int(new_id))
+            config = load_config(config_path)
+        except Exception:
+            logger.exception("could not repoint the bench at motor %s", new_id)
+            return False
+        self.supervisor.install_bare_config_object(config)
+        return True
+
+    def declare_motor(self, motor_id: int, model_key: "str | None",
+                      nickname: "str | None") -> dict:
+        """Record what the operator says is at this ID.
+
+        The declaration is checked against the model number the servo reports.
+        A disagreement is returned rather than resolved here: only a human can
+        say whether the label or the wiring is wrong.
+        """
+        session = self._require_motors()
+        if not self.settings.bare:
+            raise ServiceError(
+                "motor declarations are a bare-mode bench control",
+                status_code=409)
+        motor_id = int(motor_id)
+        if motor_id not in session.hand.config.motor_ids:
+            raise ServiceError(f"unknown motor id {motor_id}")
+        if model_key is not None and model_key not in motor_models.BY_KEY:
+            raise ServiceError(f"unknown motor model {model_key!r}")
+        name = (nickname or "").strip()[:40]
+        self._bench_declared[motor_id] = {
+            "model": model_key or motor_models.UNKNOWN_KEY,
+            "nickname": name,
+        }
+        return {"id": motor_id, **self._declaration(session, motor_id)}
+
+    def _reported_model_number(self, session, motor_id: int) -> "int | None":
+        client = getattr(session.hand, "motor_client", None)
+        numbers = getattr(client, "_model_numbers", None) or {}
+        value = numbers.get(int(motor_id))
+        return int(value) if value is not None else None
+
+    def _declaration(self, session, motor_id: int) -> dict:
+        """What is declared for this motor, and whether the servo agrees."""
+        declared = self._bench_declared.get(int(motor_id), {})
+        model = motor_models.get(declared.get("model"))
+        reported = self._reported_model_number(session, motor_id)
+        identified = motor_models.for_model_number(reported)
+        mismatch = (
+            model.key != motor_models.UNKNOWN_KEY
+            and identified is not None
+            and identified.key != model.key
+        )
+        return {
+            "nickname": declared.get("nickname") or "",
+            "model": motor_models.as_dict(model),
+            "reported_model_number": reported,
+            "identified": (motor_models.as_dict(identified)
+                           if identified is not None else None),
+            "mismatch": mismatch,
+        }
+
+    def motor_model_catalogue(self) -> list[dict]:
+        return [motor_models.as_dict(m) for m in motor_models.catalogue()]
+
+    def set_motor_points(self, motor_id: int,
+                         points: "list[float] | None") -> dict:
+        """Record (or clear, with None) the points found by hand for one motor."""
+        session = self._require_motors()
+        if not self.settings.bare:
+            raise ServiceError(
+                "recorded points are a bare-mode bench control", status_code=409)
+        motor_id = int(motor_id)
+        if motor_id not in session.hand.config.motor_ids:
+            raise ServiceError(f"unknown motor id {motor_id}")
+        if not points:
+            self._stop_motor_playback(motor_id)
+            self._bench_points.pop(motor_id, None)
+            return {"id": motor_id, "points": None}
+        values = [float(p) for p in points]
+        if not all(math.isfinite(p) for p in values):
+            raise ServiceError("recorded points must be finite")
+        for value in values:
+            self._check_within_travel(session.hand, value)
+        self._bench_points[motor_id] = values
+        return {"id": motor_id, "points": values}
+
+    def set_bench_pacing(self, interp_steps: int,
+                         max_settle_ms: "int | None",
+                         period_ms: "int | None" = None) -> dict:
+        """How bench playback paces itself, for every motor at once.
+
+        Bench-wide rather than per motor because one thread drives the shared
+        bus and arrival is a whole-chain condition: two motors pacing
+        themselves differently would only mean one waiting on the other.
+        """
+        steps = int(interp_steps)
+        if not BENCH_MIN_INTERP_STEPS <= steps <= BENCH_MAX_INTERP_STEPS:
+            raise ServiceError(
+                f"interp_steps must be {BENCH_MIN_INTERP_STEPS}.."
+                f"{BENCH_MAX_INTERP_STEPS} ({BENCH_MIN_INTERP_STEPS} = move "
+                f"directly from each point to the next)")
+        cap = None if max_settle_ms in (None, "") else int(max_settle_ms)
+        if cap is not None and not 1 <= cap <= 60_000:
+            raise ServiceError(
+                "max_settle_ms must be 1..60000 (omit it to wait for every "
+                "motor)")
+        period = (self._bench_period_s if period_ms in (None, "")
+                  else int(period_ms) / 1000.0)
+        if not BENCH_MIN_PERIOD_S <= period <= BENCH_MAX_PERIOD_S:
+            raise ServiceError(
+                f"period_ms must be {BENCH_MIN_PERIOD_S * 1000:.0f}.."
+                f"{BENCH_MAX_PERIOD_S * 1000:.0f}")
+        with self._state_lock:
+            self._bench_interp_steps = steps
+            self._bench_max_settle_ms = cap
+            self._bench_period_s = period
+        return {"interp_steps": steps, "max_settle_ms": cap,
+                "period_ms": round(period * 1000)}
+
+    def set_motor_playback(self, motor_id: int, enabled: bool) -> dict:
+        """Run or stop this motor's recorded points.
+
+        One point is a place to go and hold. Two or more is a cycle: the motor
+        rests on each in turn, which is what makes a repeatability or load run
+        watchable without anyone holding a slider.
+        """
+        session = self._require_motors()
+        if not self.settings.bare:
+            raise ServiceError(
+                "playback is a bare-mode bench control", status_code=409)
+        motor_id = int(motor_id)
+        if not enabled:
+            self._stop_motor_playback(motor_id)
+            return {"id": motor_id, "playing": False}
+        points = self._bench_points.get(motor_id)
+        if not points:
+            raise ServiceError(f"motor {motor_id} has no recorded points")
+        self._require_torque()
+        self._require_manual_control()
+        with self._state_lock:
+            self._bench_playing[motor_id] = 0
+        self._ensure_bench_thread()
+        return {"id": motor_id, "playing": True}
+
+    def _stop_motor_playback(self, motor_id: int) -> None:
+        with self._state_lock:
+            self._bench_playing.pop(int(motor_id), None)
+
+    def stop_all_playback(self) -> int:
+        """Stop every running bench sequence. Returns how many were running.
+
+        Playback writes goal positions on a timer, so anything that means
+        "stop moving" has to reach it. Torque off and e-stop both did not,
+        which left a sequence still writing while the operator believed they
+        had stopped it, and the motor resuming the moment torque came back.
+        """
+        with self._state_lock:
+            running = len(self._bench_playing)
+            self._bench_playing.clear()
+        return running
+
+    def _ensure_bench_thread(self) -> None:
+        if self._bench_thread is not None and self._bench_thread.is_alive():
+            return
+        self._bench_stop.clear()
+        self._bench_thread = threading.Thread(
+            target=self._bench_loop, name="bench-playback", daemon=True)
+        self._bench_thread.start()
+
+    def _bench_loop(self) -> None:
+        while not self._bench_stop.is_set():
+            if not self._bench_step():
+                return
+            self._bench_stop.wait(self._bench_period_s)
+
+    @staticmethod
+    def _bench_target(points: "list[float]", frame: int, steps: int):
+        """Where a motor should be on this frame, and whether it lands.
+
+        Frame zero is the approach: the motor may be anywhere when playback
+        starts, so the first recorded point is somewhere to get to rather
+        than somewhere to travel from. After that, segments run point to
+        point and wrap, so a two-point recording is a cycle and not a
+        one-way trip. ``steps`` commands span each segment, the last being
+        the recorded point itself -- at ``steps=1`` that is the only command,
+        which is a direct move.
+        """
+        if frame <= 0:
+            return points[0], True
+        count = len(points)
+        segment, within = divmod(frame - 1, steps)
+        start = points[segment % count]
+        end = points[(segment + 1) % count]
+        fraction = (within + 1) / steps
+        arrives = within + 1 == steps
+        return start + (end - start) * fraction, arrives
+
+    def _bench_step(self) -> bool:
+        """Write every playing motor its next frame. False when there is
+        nothing left to play and the thread should end.
+
+        One thread for the whole bench rather than one per motor: the bus is
+        shared, so the writes have to take turns anyway, and arrival is a
+        whole-chain condition in any case.
+        """
+        with self._state_lock:
+            playing = dict(self._bench_playing)
+        if not playing:
+            return False
+        session = self.session
+        if session is None or not session.caps.motors:
+            return False
+        if not self.supervisor.status().torque_enabled:
+            # Belt and braces: whatever turned torque off, stop writing.
+            self.stop_all_playback()
+            return False
+        landing = False
+        for motor_id, index in playing.items():
+            points = self._bench_points.get(motor_id)
+            if not points:
+                self._stop_motor_playback(motor_id)
+                continue
+            target, arrives = self._bench_target(
+                points, index, self._bench_interp_steps)
+            landing = landing or arrives
+            try:
+                session.hand.write_motor_pos([motor_id], np.asarray([target]))
+            except Exception:
+                logger.debug("bench playback write failed (motor %s)",
+                             motor_id, exc_info=True)
+                self._stop_motor_playback(motor_id)
+                continue
+            with self._state_lock:
+                if motor_id in self._bench_playing:
+                    # A single point is a hold, not a cycle: it keeps being
+                    # written so a motor pushed off target returns to it.
+                    self._bench_playing[motor_id] = index + 1
+        if landing:
+            self._await_bench_arrival(session)
+        return True
+
+    def _await_bench_arrival(self, session) -> None:
+        """Let the motors reach this point before the next one is written.
+
+        Without it the dwell is a guess at how long the move takes, so a
+        sequence either paces itself to its slowest leg or writes the next
+        point mid-travel and never reaches the recorded one at all. Only at
+        a recorded point: a step on the way to one is not a sync point.
+        """
+        cap_ms = self._bench_max_settle_ms
+        timeout = cap_ms / 1000.0 if cap_ms else BENCH_ARRIVAL_TIMEOUT_S
+        try:
+            session.hand.wait_for_motion(timeout=timeout)
+        except MotionTimeoutError:
+            # Expected where the operator set a cap -- moving on is the point
+            # of setting one. Without a cap it means a motor is held off its
+            # point, and carrying on still beats stranding the sequence.
+            logger.debug("bench playback: not every motor arrived",
+                         exc_info=True)
+        except Exception:
+            logger.debug("bench playback: arrival wait failed", exc_info=True)
+
+    def _check_within_travel(self, hand, position: float) -> None:
+        """Refuse a target the motor physically cannot reach.
+
+        Out of range does not fail at the servo, it clamps to whichever end is
+        nearer, so an unreachable target reads as a hard drive into a stop
+        rather than as a rejected command.
+        """
+        span = getattr(type(getattr(hand, "motor_client", None)),
+                       "position_range_rad", None)
+        if span is not None and not (span[0] <= position <= span[1]):
+            raise ServiceError(
+                f"{position:.3f} rad is outside this motor's travel "
+                f"({span[0]:.3f} to {span[1]:.3f} rad)")
+
+    def _check_reachable(self, hand, motor_id: int, position: float) -> None:
+        """As above, and also inside the range the operator found by hand.
+
+        Only for a target somebody typed or dragged. A recorded point is a
+        place the motor was physically put, so it is reachable by definition
+        and is checked against travel alone — the found range bounds the
+        slider, it does not decide where a recording may have been made.
+        """
+        found = self._bench_ranges.get(int(motor_id))
+        if found is not None and not (found[0] <= position <= found[1]):
+            raise ServiceError(
+                f"{position:.3f} rad is outside the range found for this "
+                f"motor ({found[0]:.3f} to {found[1]:.3f} rad) — clear the "
+                "range to command past it")
+        self._check_within_travel(hand, position)
+
+    def set_motor_position(self, motor_id: int, position: float) -> dict:
+        """Raw motor-space position write (radians) for one motor."""
+        session = self._require_torque()
+        self._require_manual_control()
+        with self._state_lock:
+            if not self._direct_motor_mode:
+                raise ServiceError(
+                    "direct motor mode is not armed", status_code=409)
+        hand = session.hand
+        motor_id = int(motor_id)
+        if motor_id not in hand.config.motor_ids:
+            raise ServiceError(f"unknown motor id {motor_id}")
+        position = float(position)
+        if not math.isfinite(position):
+            raise ServiceError("position must be finite")
+        current = float(hand.get_motor_pos(as_dict=True)[motor_id])
+        if (not self.settings.bare
+                and abs(position - current) > MAX_DIRECT_MOTOR_STEP_RAD):
+            raise ServiceError(
+                f"refusing a {abs(position - current):.2f} rad move — direct "
+                f"moves are capped at {MAX_DIRECT_MOTOR_STEP_RAD} rad from "
+                "the current position")
+        self._check_reachable(hand, motor_id, position)
+        # A hand on the slider outranks a running sequence, which would
+        # otherwise fight it for the motor a second and a half later.
+        self._stop_motor_playback(motor_id)
+        # The hardware motor client divides positions by its scale — needs
+        # an array, not a list.
+        hand.write_motor_pos([motor_id], np.asarray([position]))
+        return {"id": motor_id, "position": position, "previous": current}
+
+    # ----- poses & demos -------------------------------------------------------
+
+    def list_poses(self) -> list[dict]:
+        user = self.library.user_poses()
+        out = []
+        for name in BUILTIN_POSES:
+            if name in user:
+                continue   # user pose shadows the built-in
+            out.append({"name": name, "builtin": True, "placeholder": True})
+        for name, entry in user.items():
+            out.append({
+                "name": name, "builtin": False, "placeholder": False,
+                "saved_at": entry.get("saved_at"),
+            })
+        out.sort(key=lambda p: p["name"])
+        return out
+
+    def save_pose(self, name: str, angles: dict[str, float]) -> None:
+        known = set(self.supervisor.config.joint_ids)
+        unknown = set(angles) - known
+        if unknown:
+            raise ServiceError(f"unknown joints: {sorted(unknown)}")
+        try:
+            self.library.save_pose(name, angles)
+        except LibraryError as e:
+            raise ServiceError(str(e), status_code=e.status_code)
+
+    def delete_pose(self, name: str) -> None:
+        try:
+            self.library.delete_pose(name)
+        except LibraryError as e:
+            raise ServiceError(str(e), status_code=e.status_code)
+
+    def capture_pose(self, name: str) -> dict:
+        session = self._require_session()
+        measured = session.sampled_joints()
+        if not measured:
+            raise ServiceError(
+                "no joint angles available — capture needs joint encoders, "
+                "or motors with a completed calibration",
+                status_code=409)
+        angles = {j: round(float(v), 2) for j, v in measured.items()}
+        self.save_pose(name, angles)
+        return {"name": name, "angles": angles}
+
+    def apply_pose(self, name: str) -> dict:
+        """One-shot interpolated move to a saved/built-in pose. Not an
+        operation — finishes in one motion, needs no progress/stop."""
+        from orca_ui.hand.operations import hand_ops
+
+        session = self._require_torque()
+        self._require_manual_control()
+        user = self.library.user_poses()
+        if name in user:
+            angles = {j: float(v)
+                      for j, v in (user[name].get("angles") or {}).items()}
+        elif name in BUILTIN_POSES:
+            angles = hand_ops.pose_from_fractions(
+                session.hand, BUILTIN_POSES[name])
+        else:
+            raise ServiceError(f"no pose named {name!r}", status_code=404)
+        if not angles:
+            raise ServiceError(f"pose {name!r} is empty")
+        num_steps = self._move_steps(session, angles)
+        self.worker.submit_op(
+            lambda: session.hand.set_joint_positions(
+                angles, num_steps=num_steps, step_size=_MOVE_STEP_S))
+        with self._state_lock:
+            self._targets.update(angles)
+        self._publish_targets()
+        return {"name": name, "angles": angles}
+
+    def list_demos(self) -> dict[str, list[dict[str, float]]]:
+        from orca_ui.hand.operations import hand_ops
+
+        demos = dict(hand_ops.demo_definitions())
+        demos.update(BUILTIN_SEQUENCES)
+        return demos
+
+    def demos_listing(self) -> list[dict]:
+        from orca_ui.hand.operations import hand_ops
+
+        core = hand_ops.demo_definitions()
+        out = []
+        for name, poses in self.list_demos().items():
+            out.append({
+                "name": name,
+                "poses": len(poses),
+                "source": "orca_core" if name in core else "orca_ui",
+            })
+        out.sort(key=lambda d: d["name"])
+        return out
+
+    def delete_trajectory(self, name: str) -> None:
+        try:
+            self.library.delete_trajectory(name)
+        except LibraryError as e:
+            raise ServiceError(str(e), status_code=e.status_code)
+
+    # ----- tactile ---------------------------------------------------------------
+
+    def set_tactile_mode(self, mode: str) -> None:
+        if mode not in TACTILE_MODES:
+            raise ServiceError(f"invalid mode: {mode!r} "
+                               f"(expected {sorted(TACTILE_MODES)})")
+        session = self._require_tactile()
+        resultant, taxels = TACTILE_MODES[mode]
+        session.stop_tactile_stream()
+        session.start_tactile_stream(resultant=resultant, taxels=taxels)
+        with self._state_lock:
+            self._tactile_mode = mode
+        self._publish_control_state()
+
+    @property
+    def tactile_mode(self) -> str:
+        with self._state_lock:
+            return self._tactile_mode
+
+    def zero_tactile(self, num_samples: int = 100) -> None:
+        session = self._require_tactile()
+        zeroing.capture_and_persist(session, num_samples=num_samples)
+
+    def clear_tactile_zero(self) -> None:
+        session = self._require_tactile()
+        zeroing.clear_offsets(session)

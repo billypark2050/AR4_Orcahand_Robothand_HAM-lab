@@ -1,0 +1,273 @@
+import os
+import shutil
+import threading
+
+import pytest
+
+from orca_core.constants import WRIST
+from orca_core.maintenance.tensioning import finger_motor_ids, uncapped_currents
+
+
+def _holding(hand, move_motors=True):
+    """Start a background tension and wait until it parks in the hold phase.
+
+    The hold phase runs until explicitly stopped.
+    """
+    reached = threading.Event()
+
+    def on_event(event):
+        if event.get("phase") == "holding":
+            reached.set()
+
+    hand.tension(move_motors=move_motors, blocking=False, progress_callback=on_event)
+    assert reached.wait(timeout=10.0), "tension never reached the holding phase"
+
+
+def test_tension_move_motors_false(connected_mock_hand):
+    connected_mock_hand.tension(move_motors=False, blocking=False)
+    assert connected_mock_hand._task_thread.is_alive()
+    connected_mock_hand.stop_task()
+    assert not connected_mock_hand._task_thread.is_alive()
+
+
+def test_tension_move_motors_true(connected_mock_hand):
+    _holding(connected_mock_hand, move_motors=True)
+    assert connected_mock_hand._task_thread.is_alive()
+    assert connected_mock_hand.stop_task(timeout=10.0)
+    assert not connected_mock_hand._task_thread.is_alive()
+
+
+def test_tension_holds_until_stopped(connected_mock_hand):
+    """The hold phase must not self-terminate; only stop_task() ends it."""
+    _holding(connected_mock_hand, move_motors=True)
+    for _ in range(100):
+        assert connected_mock_hand._task_thread.is_alive(), (
+            "tension task ended on its own"
+        )
+    assert connected_mock_hand.stop_task(timeout=10.0)
+    assert not connected_mock_hand._task_thread.is_alive()
+
+
+def test_second_tension_is_rejected(connected_mock_hand):
+    _holding(connected_mock_hand, move_motors=True)
+    connected_mock_hand.tension(move_motors=True, blocking=False)
+    assert connected_mock_hand._task_thread.is_alive()
+    assert connected_mock_hand._current_task == "_tension"
+    assert connected_mock_hand.stop_task(timeout=10.0)
+    assert not connected_mock_hand._task_thread.is_alive()
+
+
+def test_tension_emits_phase_events(connected_mock_hand):
+    import threading
+
+    events = []
+    holding = threading.Event()
+
+    def cb(event):
+        events.append(event)
+        if event.get("phase") == "holding":
+            holding.set()
+
+    thread = threading.Thread(
+        target=lambda: connected_mock_hand.tension(
+            blocking=True, progress_callback=cb
+        )
+    )
+    thread.start()
+    assert holding.wait(timeout=120), f"never reached holding: {events}"
+    connected_mock_hand._task_stop_event.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+
+    phases = [e["phase"] for e in events if e["event"] == "phase"]
+    assert phases[0] == "winding"
+    assert "ramp" in phases and "holding" in phases
+    assert phases[-1] == "released"
+    assert any(e["event"] == "winding_progress" for e in events)
+
+
+def test_run_tension_exception_restores_hand_state(tmp_path):
+    """An exception mid-winding must disable torque and restore the configured
+    control mode and current limit, not leave the hand straining."""
+    import orca_core
+    from orca_core import MockOrcaHand
+    from orca_core.maintenance.tensioning import run_tension
+    from orca_core.utils import update_yaml
+
+    model_config = os.path.join(
+        os.path.dirname(orca_core.__file__),
+        "models", "v2", "orcahand-right", "config.yaml",
+    )
+    config_path = tmp_path / "config.yaml"
+    shutil.copy(model_config, config_path)
+    update_yaml(str(config_path), "max_current", 250)
+    update_yaml(str(config_path), "calibration_current", 200)
+    update_yaml(str(config_path), "control_mode", "position")
+
+    hand = MockOrcaHand(config_path=str(config_path))
+    success, msg = hand.connect()
+    assert success, msg
+    try:
+        def boom(*args, **kwargs):
+            raise RuntimeError("bus died")
+
+        hand.get_motor_pos = boom
+
+        events = []
+        with pytest.raises(RuntimeError, match="bus died"):
+            run_tension(hand, move_motors=True, progress_callback=events.append)
+
+        client = hand.motor_client
+        assert not any(client._torque_enabled.values()), "torque left enabled"
+        assert set(client._operating_mode.values()) == {3}, "control mode not restored"
+        assert all(c == 250 for c in client._cur.values()), "current limit not restored"
+        phases = [e["phase"] for e in events if e["event"] == "phase"]
+        assert phases[-1] == "released"
+    finally:
+        del hand.get_motor_pos
+        hand.disconnect()
+
+
+def test_run_tension_holding_prints_nothing(connected_mock_hand, capsys):
+    """Operator guidance is the CLI's job; the packaged routine must not print
+    terminal-only instructions like the Ctrl+C hint."""
+    from orca_core.maintenance.tensioning import run_tension
+
+    capsys.readouterr()
+    run_tension(connected_mock_hand, move_motors=False, should_stop=lambda: True)
+    assert capsys.readouterr().out == ""
+
+
+def test_winding_retries_a_stale_read_instead_of_calling_it_a_stall(
+    connected_mock_hand, monkeypatch
+):
+    """A failed bus read repeats the cached position, i.e. zero motion. Counting
+    that as a stall ends the winding early and leaves the tendons slack."""
+    from orca_core.maintenance import motor_reads
+
+    hand = connected_mock_hand
+    reads = {"n": 0}
+    fresh = [False, False, True]
+
+    def stale_then_fresh(self):
+        reads["n"] += 1
+        return fresh[min(reads["n"] - 1, len(fresh) - 1)]
+
+    monkeypatch.setattr(
+        type(hand.motor_client), "last_read_ok", property(stale_then_fresh)
+    )
+    motor_reads.read_motor_pos_checked(hand, retries=5, retry_interval=0.0)
+    assert reads["n"] == 3
+
+
+def test_winding_reads_are_freshness_checked(connected_mock_hand, monkeypatch):
+    """run_tension must not sample motor positions unchecked."""
+    from orca_core.maintenance import tensioning
+
+    checked = []
+    monkeypatch.setattr(
+        tensioning,
+        "read_motor_pos_checked",
+        lambda hand, **kw: checked.append(1) or hand.get_motor_pos(),
+    )
+    tensioning.run_tension(
+        connected_mock_hand, move_motors=True, should_stop=lambda: True
+    )
+    assert checked, "winding read positions without a freshness check"
+
+
+def test_winding_skips_ticks_while_the_bus_stays_silent(connected_mock_hand, monkeypatch):
+    """A read that fails for longer than the checked read retries must not end
+    the tension run; the tick is skipped and winding carries on."""
+    from orca_core.maintenance import tensioning
+
+    hand = connected_mock_hand
+    calls = {"reads": 0, "stops": 0}
+
+    def flaky_read(hand, **kw):
+        calls["reads"] += 1
+        if calls["reads"] in (1, 3, 4):
+            raise RuntimeError("motor position read failed")
+        return hand.get_motor_pos()
+
+    def stop_after_a_few_ticks():
+        calls["stops"] += 1
+        return calls["stops"] > 6
+
+    monkeypatch.setattr(tensioning, "read_motor_pos_checked", flaky_read)
+    tensioning.run_tension(hand, move_motors=True, should_stop=stop_after_a_few_ticks)
+    assert calls["reads"] >= 5, "winding stopped reading after the failures"
+
+
+def test_the_hold_pulls_counterclockwise_and_more_on_request(connected_mock_hand):
+    import math
+
+    from orca_core.maintenance.tensioning import finger_motor_ids
+
+    hand = connected_mock_hand
+    client = hand.motor_client
+    fingers = finger_motor_ids(hand.config)
+    start = {m: client._pos[m] for m in fingers}
+    totals, holding, pulled_more = [], threading.Event(), threading.Event()
+    requests = [True]
+
+    def on_event(event):
+        if event["event"] == "pulled":
+            totals.append(event["total_deg"])
+            if len(totals) == 2:
+                pulled_more.set()
+        if event.get("phase") == "holding":
+            holding.set()
+
+    hand.tension(move_motors=False, blocking=False, progress_callback=on_event,
+                 offset_deg=15.0, extra_deg=15.0,
+                 pull_more=lambda: holding.is_set() and bool(requests) and requests.pop())
+    assert pulled_more.wait(timeout=10.0), f"never pulled more: {totals}"
+    goals = {m: client._pos[m] for m in fingers}
+    assert hand.stop_task(timeout=10.0)
+    assert totals == [15.0, 30.0]
+    assert all(goals[m] == pytest.approx(start[m] + math.radians(30.0)) for m in fingers)
+
+
+def test_the_hold_commands_the_present_position_so_nothing_sits_on_a_stale_goal(
+        connected_mock_hand):
+    """enable_torque servos to whatever the goal register holds. Left stale, a
+    motor drives toward somewhere else instead of holding, and under an
+    uncapped ceiling it would sit there drawing it."""
+    hand = connected_mock_hand
+    fingers = finger_motor_ids(hand.config, hand.absent_motor_ids)
+    idx = hand.config.motor_id_to_idx_dict
+    commanded = []
+    original = hand.write_motor_pos
+
+    def spy(motor_ids, positions, *args, **kwargs):
+        commanded.append((list(motor_ids), list(positions)))
+        return original(motor_ids, positions, *args, **kwargs)
+
+    hand.write_motor_pos = spy
+    present = hand.get_motor_pos()
+    _holding(hand, move_motors=False)
+    try:
+        for motor_ids, positions in commanded:
+            if set(motor_ids) != set(fingers):
+                continue
+            for motor_id, goal in zip(motor_ids, positions):
+                assert goal == pytest.approx(present[idx[motor_id]], abs=1e-2)
+            break
+        else:
+            raise AssertionError("the hold never commanded the finger motors")
+    finally:
+        hand.stop_task(timeout=10.0)
+        hand.write_motor_pos = original
+
+
+def test_the_uncapped_hold_leaves_the_wrist_capped(connected_mock_hand):
+    """The wrist is never ratcheted by hand and its ceiling is far higher than
+    a finger's, so it keeps max_current."""
+    hand = connected_mock_hand
+    currents = uncapped_currents(hand)
+    by_motor = dict(zip(hand.config.motor_ids, currents))
+    wrist_motor = hand.config.joint_to_motor_map[WRIST]
+    assert by_motor[wrist_motor] == pytest.approx(float(hand.config.max_current))
+    for motor_id in finger_motor_ids(hand.config):
+        assert by_motor[motor_id] >= float(hand.config.max_current)
